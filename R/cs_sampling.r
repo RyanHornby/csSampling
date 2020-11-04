@@ -38,54 +38,140 @@
 #' @export
 
 cs_sampling <- function(svydes, mod_stan, par_stan, data_stan,
-		ctrl_stan = list(chains = 1, iter = 2000, warmup = 1000, thin = 1),
-		rep_design = FALSE, ctrl_rep = list(replicates = 100, type = "mrbbootstrap")){
+                        ctrl_stan = list(chains = 1, iter = 2000, warmup = 1000, thin = 1),
+                        rep_design = FALSE, ctrl_rep = list(replicates = 100, type = "mrbbootstrap")){
   require(rstan)
   require(survey)
   require(plyr)
   
-  #run STAN model
   print("stan fitting")
   out_stan  <- sampling(object = mod_stan, data = data_stan,
-                            pars = par_stan,
-                            chains = ctrl_stan$chains,
-                            iter = ctrl_stan$iter, warmup = ctrl_stan$warmup, thin = ctrl_stan$thin
-                            )
+                        pars = par_stan,
+                        chains = ctrl_stan$chains,
+                        iter = ctrl_stan$iter, warmup = ctrl_stan$warmup, thin = ctrl_stan$thin
+  )
+  
+  #Extract parameter draws and convert to unconstrained parameters
   
   #Get posterior mean (across all chains)
-  par_samps <- extract(out_stan, pars = par_stan, permuted = FALSE)
-  par_hat <- colMeans(par_samps, dim = 2)#dim = 1 by chain, dim = 2 across chains
+  par_samps_array <- rstan::extract(out_stan, pars = par_stan, permuted = FALSE)
+  #concatenate across multiple chains
+  par_samps <- matrix(par_samps_array, ncol = dim(par_samps_array)[3])
+  
+  #convert to list type input > convert to unconstrained parameterization > back to matrix/array
+  for(i in 1:dim(par_samps)[1]){
+    plist <- list(par_samps[i,])
+    names(plist) <- par_stan
+    if(i == 1){upar_samps <- unconstrain_pars(out_stan, plist)
+    }else{upar_samps <- rbind(upar_samps, unconstrain_pars(out_stan, plist))}
+  }
+  row.names(upar_samps) <- 1:dim(par_samps)[1]
+  
+  upar_hat <- colMeans(upar_samps) 
   
   #Estimate Hessian
-  Hhat  <- -1*optimHess(par_hat, gr = function(x){grad_log_prob(out_stan, x)})
+  Hhat  <- -1*optimHess(upar_hat, gr = function(x){grad_log_prob(out_stan, x)})
   
   #create svrepdesign
   if(rep_design == TRUE){svyrep <- svydes
-  	}else{
-  	svyrep <- as.svrepdesign(design = svydes, type = ctrl_rep$type, replicates = ctrl_rep$replicates)
+  }else{
+    svyrep <- as.svrepdesign(design = svydes, type = ctrl_rep$type, replicates = ctrl_rep$replicates)
   }
   
   #Estimate Jhat = Var(gradient)
   print("gradient evaluation")
-  rep_tmp <- withCallingHandlers(withReplicates(design = svyrep, theta = grad_par, stanmod = mod_stan,
-  						standata = data_stan, par_stan = par_stan, par_hat = par_hat), warning = hideChainsWarnings)
+  rep_tmp <- withReplicates(design = svyrep, theta = grad_par, stanmod = mod_stan,
+                            standata = data_stan, par_stan = par_stan, par_hat = upar_hat)#note upar_hat
   Jhat <- vcov(rep_tmp)
   
   #compute adjustment
+  #use pivot for numerical stability - close to positive semi-definite if some parameters are highly correlated
+  #(Q <- chol(m, pivot = TRUE))
+  ## we can use this by
+  #pivot <- attr(Q, "pivot")
+  #Q[, order(pivot)]
   Hi <- solve(Hhat)
   V1 <- Hi%*%Jhat%*%Hi
-  R1 <- chol(V1)
-  R2i <- chol(Hi)
-  R2 <- solve(R2i)
-  R2R1 <- R2%*%R1
+  R1 <- chol(V1,pivot = TRUE)
+  pivot <- attr(R1, "pivot")
+  R1 <- R1[, order(pivot)]
+  
+  R2 <- chol(Hi, pivot = TRUE)
+  pivot2 <- attr(R2, "pivot2")
+  R2 <- R2[, order(pivot)]
+  R2i <- solve(R2)
+  R2iR1 <- R2i%*%R1
   
   #adjust samples
-  par_adj <- aaply(par_samps, 1, DEadj, par_hat = par_hat, R2R1 = R2R1, .drop = FALSE)
-  #matches par_samps if needed
+  upar_adj <- aaply(upar_samps, 1, DEadj, par_hat = upar_hat, R2R1 = R2iR1, .drop = TRUE)
   
-  return(list(stan_fit = out_stan, sampled_parms = par_samps, adjusted_parms =par_adj))
-
+  #back transform to constrained parameter space
+  for(i in 1:dim(upar_adj)[1]){
+    if(i == 1){par_adj <- unlist(constrain_pars(out_stan, upar_adj[i,])[par_stan])#drop derived quantities
+    }else{par_adj <- rbind(par_adj, unlist(constrain_pars(out_stan, upar_adj[i,])[par_stan]))}
+  }
+  
+  #make sure names are the same for sampled and adjusted parms
+  row.names(par_adj) <- 1:dim(par_samps)[1]
+  colnames(par_samps) <- colnames(par_adj)
+  
+  rtn = list(stan_fit = out_stan, sampled_parms = par_samps, adjusted_parms = par_adj)
+  class(rtn) = c("cs_sampling", class(rtn))
+  
+  return(rtn)
+  
 }#end of cs_sampling
+
+#' cs_sampling_brms
+#'
+#'
+#' @import brms
+#'
+#'
+#' @export
+cs_sampling_brms <- function(svydes, mod, data, family, 
+                             ctrl_stan = list(chains = 1, iter = 2000, warmup = 1000, thin = 1),
+                             rep_design = FALSE, ctrl_rep = list(replicates = 100, type = "mrbbootstrap")) {
+  
+  
+  stancode <- make_stancode(mod, data = data, family = family)
+  mod_brms  <- stan_model(model_code = stancode)
+  data_brms <- make_standata(mod, data = data, family = family)
+  par_brms<- c("b") #subset of parameters interested in
+  
+  return(cs_sampling(svydes = svy14rep, mod_stan = mod_brms, par_stan = par_brms, data_stan = data_brms, rep_design = TRUE))
+  
+}
+
+#'
+#' @import GGally
+#' 
+#' @export
+plot.cs_sampling <- function(x) {
+  
+  datpl <- data.frame(rbind(as.matrix(x$sampled_parms), as.matrix(x$adjusted_parms))
+                      , as.factor(c(rep("NO", dim(x$sampled_parms)[1]), rep("YES", dim(x$adjusted_parms)[1]))))
+  names(datpl)[dim(x$sampled_parms)[2]+1] <- c("Adjust")
+  rownames(datpl) <- NULL
+  
+  
+  require(GGally)
+  
+  my_ellipse <- function(data, mapping){
+    ggplot(data = data, mapping = mapping) +
+      geom_point()+
+      stat_ellipse(level = 0.90, type = "norm", size = 2)
+  }
+  
+  my_violin <- function(data, mapping){
+    ggplot(data = data, mapping = mapping) +
+      geom_violin(trim=TRUE,draw_quantiles = c(0.05, 0.5, 0.95),alpha=0.5, size = 1.5)
+  }
+  
+  p1 <- ggpairs(datpl, mapping = aes(color = Adjust, alpha=0.5), columns = 1:2,
+                lower = list(continuous = my_ellipse))
+  return(p1)
+}
 
 
 ##helper functions###
@@ -107,25 +193,24 @@ cs_sampling <- function(svydes, mod_stan, par_stan, data_stan,
 #' @return the gradient of the log posterior evaluated at par_hat
 #' @export
 grad_par <- function(pwts, svydata, stanmod, standata,par_stan,par_hat){
-#ignore svydata argument it allows access to svy object data
-standata$weights <- pwts
-
-
-
-
-out_stan  <- sampling(object = stanmod, data = standata,
-                      pars = par_stan,
-                      chains = 0, warmup = 0,
-                      )
-
-gradpar <- grad_log_prob(out_stan,par_hat)
-return(gradpar)
+  #ignore svydata argument it allows access to svy object data
+  standata$weights <- pwts
+  
+  
+  
+  
+  withCallingHandlers({out_stan  <- sampling(object = stanmod, data = standata,
+                                             pars = par_stan,
+                                             chains = 0, warmup = 0,
+  )}, warning=function(w) {
+    if(startsWith(conditionMessage(w), "the number of chains is less than 1"))
+      invokeRestart("muffleWarning")
+  })
+  
+  gradpar <- grad_log_prob(out_stan,par_hat)
+  return(gradpar)
 }#end of grad theta
 
-hideChainsWarnings <- function(w) {
-  if(any(grepl("the number of chains is less than 1", w))) 
-    invokeRestart("muffleWarning")
-}
 
 #helper function to apply matrix rotation
 
@@ -137,6 +222,6 @@ hideChainsWarnings <- function(w) {
 #' @return A 1D matrix corresponding to the input par that has been rescaled/rotated
 #' @export
 DEadj <- function(par, par_hat, R2R1){
-par_adj <- (par - par_hat)%*%R2R1 + par_hat
-return(par_adj)
+  par_adj <- (par - par_hat)%*%R2R1 + par_hat
+  return(par_adj)
 }

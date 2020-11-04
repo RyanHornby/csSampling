@@ -7,7 +7,9 @@
 grad_par(pwts, svydata, stanmod, standata, par_stan, par_hat)
 }
 \arguments{
-\item{pwts}{-is the weights argument. withReplicates updates this for each set of replicate weights}
+\item{pwts}{\itemize{
+\item is the weights argument. withReplicates updates this for each set of replicate weights
+}}
 
 \item{svydata}{\itemize{
 \item allows access to svrepdesign object's associated data. withReplicates expects it, but we do not use it. We use standata instead

@@ -2,7 +2,11 @@
 
 export(DEadj)
 export(cs_sampling)
+export(cs_sampling_brms)
 export(grad_par)
+export(plot.cs_sampling)
+import(GGally)
+import(brms)
 import(plyr)
 import(rstan)
 import(survey)
