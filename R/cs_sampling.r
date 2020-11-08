@@ -54,16 +54,15 @@ cs_sampling <- function(svydes, mod_stan, par_stan, data_stan,
   #Extract parameter draws and convert to unconstrained parameters
   
   #Get posterior mean (across all chains)
-  par_samps_array <- rstan::extract(out_stan, pars = par_stan, permuted = FALSE)
+  par_samps_list <- rstan::extract(out_stan, pars = par_stan, permuted = TRUE)
+  
   #concatenate across multiple chains
-  par_samps <- matrix(par_samps_array, ncol = dim(par_samps_array)[3])
+  par_samps <- as.matrix(out_stan, pars = par_stan)
   
   #convert to list type input > convert to unconstrained parameterization > back to matrix/array
   for(i in 1:dim(par_samps)[1]){
-    plist <- list(par_samps[i,])
-    names(plist) <- par_stan
-    if(i == 1){upar_samps <- unconstrain_pars(out_stan, plist)
-    }else{upar_samps <- rbind(upar_samps, unconstrain_pars(out_stan, plist))}
+    if(i == 1){upar_samps <- unconstrain_pars(out_stan, list_2D_row_subset(par_samps_list, i))
+    }else{upar_samps <- rbind(upar_samps, unconstrain_pars(out_stan, list_2D_row_subset(par_samps_list, i)))}
   }
   row.names(upar_samps) <- 1:dim(par_samps)[1]
   
@@ -168,7 +167,7 @@ plot.cs_sampling <- function(x) {
       geom_violin(trim=TRUE,draw_quantiles = c(0.05, 0.5, 0.95),alpha=0.5, size = 1.5)
   }
   
-  p1 <- ggpairs(datpl, mapping = aes(color = Adjust, alpha=0.5), columns = 1:2,
+  p1 <- ggpairs(datpl, mapping = aes(color = Adjust, alpha = 0.5), columns = c(1:(dim(datpl)[2]-1)),
                 lower = list(continuous = my_ellipse))
   return(p1)
 }
@@ -224,4 +223,26 @@ grad_par <- function(pwts, svydata, stanmod, standata,par_stan,par_hat){
 DEadj <- function(par, par_hat, R2R1){
   par_adj <- (par - par_hat)%*%R2R1 + par_hat
   return(par_adj)
+}
+
+#helper function to convert list of MCMC output from stan to input for unconstrained tranformation
+
+
+#' list_2D_row_subset
+#'
+#' @param nmlist - a named list whose elements are 1D or 2D arrays with the same number of rows
+#' @param rindex - the row index to subset
+#' @return a names list of types as the input, with elements subset to rows index provided
+#' @export
+list_2D_row_subset <- function(nmlist, rindex){
+  temp_list <- list()
+  k <- length(nmlist)
+  for(k in 1:length(nmlist))
+    if(is.na(dim(nmlist[[k]])[2])){#if the list element is only one dimension (not two)
+      eval(parse(text = paste("temp_list$",names(nmlist)[k], " <- ", 
+                              "(nmlist$",names(nmlist)[k], ")[rindex]", sep = "")))
+    }else{eval(parse(text = paste("temp_list$",names(nmlist)[k], " <- ", 
+                                  "(nmlist$",names(nmlist)[k], ")[rindex,]", sep = "")))
+    }
+  return(temp_list)
 }
