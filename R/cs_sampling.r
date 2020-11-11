@@ -22,9 +22,10 @@
 #' @import rstan
 #' @import survey
 #' @import plyr
+#' @import pkgcond
 #' @param svydes - a svydesign object or a svyrepdesign object (see survey package). This contains cluster ID, strata, and weight information (svydesign) or replicate weight information (svyrepdesign)
 #' @param mod_stan - a compiled stan model to be called by rstan::sampling
-#' @param par_stan - a list of the parameter names in the parameter block of the stan model. These are treated as potentially constrained and will be converted to unconstrained parameters, adjusted, and then converted back  
+#' @param par_stan - a list of subset of parameters to output after adjustment. All parameters are adjusted including the derived parameters, so users may want to only compare subsets. The defualt, NA, will return all parameters.  
 #' @param data_stan - a list of data inputs for rstan::sampling() associated with mod_stan
 #' @param ctrl_stan - a list of control parameters to pass to rstan::sampling(). Currently includes the number of chains, iter, warmpup, and thin with defualts
 #' @param rep_design - logical indicating if the svydes object is a svyrepdesign. If FALSE, the design will be converted to a svyrepdesign using ctrl_rep settings
@@ -37,12 +38,13 @@
 #' }
 #' @export
 
-cs_sampling <- function(svydes, mod_stan, par_stan, data_stan,
+cs_sampling <- function(svydes, mod_stan, par_stan = NA, data_stan,
                         ctrl_stan = list(chains = 1, iter = 2000, warmup = 1000, thin = 1),
                         rep_design = FALSE, ctrl_rep = list(replicates = 100, type = "mrbbootstrap")){
   require(rstan)
   require(survey)
   require(plyr)
+  require(pkgcond)
   
   #Check weights
   #Check that the weights exist in both the survey object and the stan data
@@ -81,13 +83,18 @@ cs_sampling <- function(svydes, mod_stan, par_stan, data_stan,
   #Extract parameter draws and convert to unconstrained parameters
   
   #Get posterior mean (across all chains)
-  par_samps_list <- rstan::extract(out_stan, pars = par_stan, permuted = TRUE)
+  par_samps_list <- rstan::extract(out_stan, permuted = TRUE)
   
-  #concatenate across multiple chains
+  #If par_stan is not provided (NA) use all parameters (except "lp__", which is last)
+  if(anyNA(par_stan)){
+    par_stan <- names(par_samps_list)[-length(names(par_samps_list))]
+  }
+  
+  #concatenate across multiple chains - save for later for export
   par_samps <- as.matrix(out_stan, pars = par_stan)
   
   #convert to list type input > convert to unconstrained parameterization > back to matrix/array
-  for(i in 1:dim(par_samps)[1]){
+  for(i in 1:dim(par_samps)[1]){#just need the length here
     if(i == 1){upar_samps <- unconstrain_pars(out_stan, list_2D_row_subset(par_samps_list, i))
     }else{upar_samps <- rbind(upar_samps, unconstrain_pars(out_stan, list_2D_row_subset(par_samps_list, i)))}
   }
@@ -107,7 +114,7 @@ cs_sampling <- function(svydes, mod_stan, par_stan, data_stan,
   #Estimate Jhat = Var(gradient)
   print("gradient evaluation")
   rep_tmp <- withReplicates(design = svyrep, theta = grad_par, stanmod = mod_stan,
-                            standata = data_stan, par_stan = par_stan, par_hat = upar_hat)#note upar_hat
+                            standata = data_stan, par_hat = upar_hat)#note upar_hat
   Jhat <- vcov(rep_tmp)
   
   #compute adjustment
@@ -150,37 +157,55 @@ cs_sampling <- function(svydes, mod_stan, par_stan, data_stan,
 
 #' cs_sampling_brms
 #'
+#'cs_sampling_brms is a wrapper function that takes inputs in the form of model statements in familiar brm syntax
+#'Then brms helper functions build Stan models and call cs_sampling.
+#'
 #'
 #' @import brms
-#'
+#' @param svydes - a svydesign object or a svyrepdesign object (see survey package). This contains cluster ID, strata, and weight information (svydesign) or replicate weight information (svyrepdesign)
+#' @param brmsmod - brmsformula object, as input to brms::make_stancod()
+#' @param par_brms - a list of subset of parameters to output after adjustment. All parameters are adjusted including the derived parameters, so users may want to only compare subsets. The defualt, NA, will return all parameters.  
+#' @param data - a data frame, as input to brms::make_stancod()
+#' @param family - family or brmsfamily as input to brms::make_stancod() specifying distribution and link function
+#' @param prior - optional input to brms::make_stancod()
+#' @param stanvars - optionalinput to brms::make_stancod()
+#' @param knots -optional input to brms::make_stancod()
+#' @param ctrl_stan - a list of control parameters to pass to rstan::sampling(). Currently includes the number of chains, iter, warmpup, and thin with defualts
+#' @param rep_design - logical indicating if the svydes object is a svyrepdesign. If FALSE, the design will be converted to a svyrepdesign using ctrl_rep settings
+#' @param ctrl_rep - a list of settings when converting svydes from a svydesign object to a svyrepdesign object. replicates - number of replicate weights. type - the type of replicate method to use, the default is mrbbootstrap which sample half of the clusters in each strata to make each replicate 
+#' @return
 #'
 #' @export
-cs_sampling_brms <- function(svydes, mod, data, family, 
+cs_sampling_brms <- function(svydes, brmsmod, data, family, par_brms = NA,prior = NULL, stanvars = NULL, knots = NULL, 
                              ctrl_stan = list(chains = 1, iter = 2000, warmup = 1000, thin = 1),
                              rep_design = FALSE, ctrl_rep = list(replicates = 100, type = "mrbbootstrap")) {
   
   
-  stancode <- make_stancode(mod, data = data, family = family)
+  stancode <- make_stancode(brmsmod, data = data, family = family, prior = prior, stanvars = stanvars, knots = knots)
+  print("compiling stan model")
   mod_brms  <- stan_model(model_code = stancode)
-  data_brms <- make_standata(mod, data = data, family = family)
-  par_brms<- c("b") #subset of parameters interested in
+  data_brms <- make_standata(brmsmod, data = data, family = family, prior = prior, stanvars = stanvars, knots = knots)
   
-  return(cs_sampling(svydes = svy14rep, mod_stan = mod_brms, par_stan = par_brms, data_stan = data_brms, rep_design = TRUE))
+  return(cs_sampling(svydes = svydes, mod_stan = mod_brms, par_stan = par_brms, data_stan = data_brms, 
+                     rep_design = rep_design, ctrl_rep = ctrl_rep, ctrl_stan = ctrl_stan))
   
 }
 
 #'
 #' @import GGally
-#' 
+#' @param x - object of type cs_sampling
+#' @param varnames - vector of names of subset of variable for pairs plotting
 #' @method plot cs_sampling
 #' @export
-plot.cs_sampling <- function(x) {
+plot.cs_sampling <- function(x, varnames = NULL) {
   
   datpl <- data.frame(rbind(as.matrix(x$sampled_parms), as.matrix(x$adjusted_parms))
                       , as.factor(c(rep("NO", dim(x$sampled_parms)[1]), rep("YES", dim(x$adjusted_parms)[1]))))
   names(datpl)[dim(x$sampled_parms)[2]+1] <- c("Adjust")
   rownames(datpl) <- NULL
   
+  #subset to varnames
+  if(!is.null(varnames)){datpl <- datpl[, c(varnames, "Adjust")]}
   
   require(GGally)
   
@@ -216,18 +241,16 @@ plot.cs_sampling <- function(x) {
 #' @param svydata - allows access to svrepdesign object's associated data. withReplicates expects it, but we do not use it. We use standata instead
 #' @param stanmod - the compiled stan model to be passed to rstan::sampling
 #' @param standata - list of data inputs to be passed to rstan::samlping
-#' @param par_stan - list of potentially constrained parameters from the parameters block of the stan model
 #' @return the gradient of the log posterior evaluated at par_hat
 #' @import pkgcond
 #' @export
-grad_par <- function(pwts, svydata, stanmod, standata,par_stan,par_hat){
+grad_par <- function(pwts, svydata, stanmod, standata,par_hat){
   #ignore svydata argument it allows access to svy object data
   standata$weights <- pwts
   
   
   suppress_messages(out_stan  <- sampling(object = stanmod, data = standata,
-                        pars = par_stan,
-                        chains = 0, warmup = 0,), "the number of chains is less than 1")
+                                          chains = 0, warmup = 0,), "the number of chains is less than 1")
   
   gradpar <- grad_log_prob(out_stan,par_hat)
   return(gradpar)
