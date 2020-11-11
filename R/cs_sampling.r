@@ -44,6 +44,33 @@ cs_sampling <- function(svydes, mod_stan, par_stan, data_stan,
   require(survey)
   require(plyr)
   
+  #Check weights
+  #Check that the weights exist in both the survey object and the stan data
+  if (is.null(weights(svydes))) {
+    if (!is.null(weights(data_stan))) {
+      warning("No survey weights, using weights from stan data instead")
+      
+    }
+  }
+  if (is.null(weights(data_stan))) {
+    if (!is.null(weights(svydes))) {
+      warning("No stan data weights, using survey weights instead")
+      data_stan$weights = weights(svydes)
+    }
+  }
+  #Check that the weights are the same
+  if (!isTRUE(all.equal(as.numeric(weights(data_stan)), as.numeric(weights(svydes))))) {
+    stop("Survey weights and stan data weights do not match")
+  }
+  #Check that the mean is 1
+  if (mean(weights(data_stan)) != 1) {
+    warning("Mean of the weights is not 1, scaling weights to a mean of one")
+    new_weights = weights(data_stan)/mean(weights(data_stan))
+    
+    
+  }
+  
+  
   print("stan fitting")
   out_stan  <- sampling(object = mod_stan, data = data_stan,
                         pars = par_stan,
@@ -145,6 +172,7 @@ cs_sampling_brms <- function(svydes, mod, data, family,
 #'
 #' @import GGally
 #' 
+#' @method plot cs_sampling
 #' @export
 plot.cs_sampling <- function(x) {
   
@@ -190,21 +218,16 @@ plot.cs_sampling <- function(x) {
 #' @param standata - list of data inputs to be passed to rstan::samlping
 #' @param par_stan - list of potentially constrained parameters from the parameters block of the stan model
 #' @return the gradient of the log posterior evaluated at par_hat
+#' @import pkgcond
 #' @export
 grad_par <- function(pwts, svydata, stanmod, standata,par_stan,par_hat){
   #ignore svydata argument it allows access to svy object data
   standata$weights <- pwts
   
   
-  
-  
-  withCallingHandlers({out_stan  <- sampling(object = stanmod, data = standata,
-                                             pars = par_stan,
-                                             chains = 0, warmup = 0,
-  )}, warning=function(w) {
-    if(startsWith(conditionMessage(w), "the number of chains is less than 1"))
-      invokeRestart("muffleWarning")
-  })
+  suppress_messages(out_stan  <- sampling(object = stanmod, data = standata,
+                        pars = par_stan,
+                        chains = 0, warmup = 0,), "the number of chains is less than 1")
   
   gradpar <- grad_log_prob(out_stan,par_hat)
   return(gradpar)
