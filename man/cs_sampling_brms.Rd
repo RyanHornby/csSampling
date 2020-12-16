@@ -6,14 +6,80 @@
 \usage{
 cs_sampling_brms(
   svydes,
-  mod,
+  brmsmod,
   data,
   family,
+  par_brms = NA,
+  prior = NULL,
+  stanvars = NULL,
+  knots = NULL,
   ctrl_stan = list(chains = 1, iter = 2000, warmup = 1000, thin = 1),
   rep_design = FALSE,
-  ctrl_rep = list(replicates = 100, type = "mrbbootstrap")
+  ctrl_rep = list(replicates = 100, type = "mrbbootstrap"),
+  stancode_args = list(),
+  standata_args = list(),
+  sampling_args = list()
 )
 }
+\arguments{
+\item{svydes}{\itemize{
+\item a svydesign object or a svyrepdesign object (see survey package). This contains cluster ID, strata, and weight information (svydesign) or replicate weight information (svyrepdesign)
+}}
+
+\item{brmsmod}{\itemize{
+\item brmsformula object, as input to brms::make_stancod()
+}}
+
+\item{data}{\itemize{
+\item a data frame, as input to brms::make_stancod()
+}}
+
+\item{family}{\itemize{
+\item family or brmsfamily as input to brms::make_stancod() specifying distribution and link function
+}}
+
+\item{par_brms}{\itemize{
+\item a list of subset of parameters to output after adjustment. All parameters are adjusted including the derived parameters, so users may want to only compare subsets. The defualt, NA, will return all parameters.
+}}
+
+\item{prior}{\itemize{
+\item optional input to brms::make_stancod()
+}}
+
+\item{stanvars}{\itemize{
+\item optionalinput to brms::make_stancod()
+}}
+
+\item{knots}{-optional input to brms::make_stancod()}
+
+\item{ctrl_stan}{\itemize{
+\item a list of control parameters to pass to rstan::sampling(). Currently includes the number of chains, iter, warmpup, and thin with defualts
+}}
+
+\item{rep_design}{\itemize{
+\item logical indicating if the svydes object is a svyrepdesign. If FALSE, the design will be converted to a svyrepdesign using ctrl_rep settings
+}}
+
+\item{ctrl_rep}{\itemize{
+\item a list of settings when converting svydes from a svydesign object to a svyrepdesign object. replicates - number of replicate weights. type - the type of replicate method to use, the default is mrbbootstrap which sample half of the clusters in each strata to make each replicate
+}}
+
+\item{stancode_args}{\itemize{
+\item a list of extra arguments to be passed to make_stancode.
+}}
+
+\item{standata_args}{\itemize{
+\item a list of extra arguments to be passed to make_standata.
+}}
+
+\item{sampling_args}{\itemize{
+\item a list of extra arguments to be passed to sampling.
+}}
+}
+\value{
+
+}
 \description{
-cs_sampling_brms
+cs_sampling_brms is a wrapper function that takes inputs in the form of model statements in familiar brm syntax
+Then brms helper functions build Stan models and call cs_sampling.
 }

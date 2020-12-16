@@ -30,6 +30,7 @@
 #' @param ctrl_stan - a list of control parameters to pass to rstan::sampling(). Currently includes the number of chains, iter, warmpup, and thin with defualts
 #' @param rep_design - logical indicating if the svydes object is a svyrepdesign. If FALSE, the design will be converted to a svyrepdesign using ctrl_rep settings
 #' @param ctrl_rep - a list of settings when converting svydes from a svydesign object to a svyrepdesign object. replicates - number of replicate weights. type - the type of replicate method to use, the default is mrbbootstrap which sample half of the clusters in each strata to make each replicate 
+#' @param sampling_args - a list of extra arguments that get passed to sampling.
 #' @return A list of the following:
 #' \itemize{
 #'  \item stan_fit - the original stanfit object returned by rstan::sampling for the weighted model
@@ -40,7 +41,8 @@
 
 cs_sampling <- function(svydes, mod_stan, par_stan = NA, data_stan,
                         ctrl_stan = list(chains = 1, iter = 2000, warmup = 1000, thin = 1),
-                        rep_design = FALSE, ctrl_rep = list(replicates = 100, type = "mrbbootstrap")){
+                        rep_design = FALSE, ctrl_rep = list(replicates = 100, type = "mrbbootstrap"), 
+                        sampling_args = list()){
   require(rstan)
   require(survey)
   require(plyr)
@@ -50,8 +52,7 @@ cs_sampling <- function(svydes, mod_stan, par_stan = NA, data_stan,
   #Check that the weights exist in both the survey object and the stan data
   if (is.null(weights(svydes))) {
     if (!is.null(weights(data_stan))) {
-      warning("No survey weights, using weights from stan data instead")
-      
+      stop("No survey weights")
     }
   }
   if (is.null(weights(data_stan))) {
@@ -66,18 +67,15 @@ cs_sampling <- function(svydes, mod_stan, par_stan = NA, data_stan,
   }
   #Check that the mean is 1
   if (mean(weights(data_stan)) != 1) {
-    warning("Mean of the weights is not 1, scaling weights to a mean of one")
-    new_weights = weights(data_stan)/mean(weights(data_stan))
-    
-    
+    stop("Mean of the weights is not 1")
   }
   
   
   print("stan fitting")
-  out_stan  <- sampling(object = mod_stan, data = data_stan,
+  out_stan  <- do.call(sampling, c(list(object = mod_stan, data = data_stan,
                         pars = par_stan,
                         chains = ctrl_stan$chains,
-                        iter = ctrl_stan$iter, warmup = ctrl_stan$warmup, thin = ctrl_stan$thin
+                        iter = ctrl_stan$iter, warmup = ctrl_stan$warmup, thin = ctrl_stan$thin), sampling_args)
   )
   
   #Extract parameter draws and convert to unconstrained parameters
@@ -173,21 +171,25 @@ cs_sampling <- function(svydes, mod_stan, par_stan = NA, data_stan,
 #' @param ctrl_stan - a list of control parameters to pass to rstan::sampling(). Currently includes the number of chains, iter, warmpup, and thin with defualts
 #' @param rep_design - logical indicating if the svydes object is a svyrepdesign. If FALSE, the design will be converted to a svyrepdesign using ctrl_rep settings
 #' @param ctrl_rep - a list of settings when converting svydes from a svydesign object to a svyrepdesign object. replicates - number of replicate weights. type - the type of replicate method to use, the default is mrbbootstrap which sample half of the clusters in each strata to make each replicate 
+#' @param stancode_args - a list of extra arguments to be passed to make_stancode.
+#' @param standata_args - a list of extra arguments to be passed to make_standata.
+#' @param sampling_args - a list of extra arguments to be passed to sampling.
 #' @return
 #'
 #' @export
 cs_sampling_brms <- function(svydes, brmsmod, data, family, par_brms = NA,prior = NULL, stanvars = NULL, knots = NULL, 
                              ctrl_stan = list(chains = 1, iter = 2000, warmup = 1000, thin = 1),
-                             rep_design = FALSE, ctrl_rep = list(replicates = 100, type = "mrbbootstrap")) {
+                             rep_design = FALSE, ctrl_rep = list(replicates = 100, type = "mrbbootstrap"),
+                             stancode_args = list(), standata_args = list(), sampling_args = list()) {
   
   
-  stancode <- make_stancode(brmsmod, data = data, family = family, prior = prior, stanvars = stanvars, knots = knots)
+  stancode <- do.call(make_stancode, c(list(brmsmod, data = data, family = family, prior = prior, stanvars = stanvars, knots = knots), stancode_args))
   print("compiling stan model")
   mod_brms  <- stan_model(model_code = stancode)
-  data_brms <- make_standata(brmsmod, data = data, family = family, prior = prior, stanvars = stanvars, knots = knots)
+  data_brms <- do.call(make_standata, c(list(brmsmod, data = data, family = family, prior = prior, stanvars = stanvars, knots = knots), standata_args))
   
   return(cs_sampling(svydes = svydes, mod_stan = mod_brms, par_stan = par_brms, data_stan = data_brms, 
-                     rep_design = rep_design, ctrl_rep = ctrl_rep, ctrl_stan = ctrl_stan))
+                     rep_design = rep_design, ctrl_rep = ctrl_rep, ctrl_stan = ctrl_stan), sampling_args)
   
 }
 

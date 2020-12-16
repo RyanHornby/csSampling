@@ -7,11 +7,12 @@
 cs_sampling(
   svydes,
   mod_stan,
-  par_stan,
+  par_stan = NA,
   data_stan,
   ctrl_stan = list(chains = 1, iter = 2000, warmup = 1000, thin = 1),
   rep_design = FALSE,
-  ctrl_rep = list(replicates = 100, type = "mrbbootstrap")
+  ctrl_rep = list(replicates = 100, type = "mrbbootstrap"),
+  sampling_args = list()
 )
 }
 \arguments{
@@ -24,7 +25,7 @@ cs_sampling(
 }}
 
 \item{par_stan}{\itemize{
-\item a list of the parameter names in the parameter block of the stan model. These are treated as potentially constrained and will be converted to unconstrained parameters, adjusted, and then converted back
+\item a list of subset of parameters to output after adjustment. All parameters are adjusted including the derived parameters, so users may want to only compare subsets. The defualt, NA, will return all parameters.
 }}
 
 \item{data_stan}{\itemize{
@@ -41,6 +42,10 @@ cs_sampling(
 
 \item{ctrl_rep}{\itemize{
 \item a list of settings when converting svydes from a svydesign object to a svyrepdesign object. replicates - number of replicate weights. type - the type of replicate method to use, the default is mrbbootstrap which sample half of the clusters in each strata to make each replicate
+}}
+
+\item{sampling_args}{\itemize{
+\item a list of extra arguments that get passed to sampling.
 }}
 }
 \value{

@@ -4,7 +4,7 @@
 \alias{grad_par}
 \title{grad_par}
 \usage{
-grad_par(pwts, svydata, stanmod, standata, par_stan, par_hat)
+grad_par(pwts, svydata, stanmod, standata, par_hat)
 }
 \arguments{
 \item{pwts}{\itemize{
@@ -21,10 +21,6 @@ grad_par(pwts, svydata, stanmod, standata, par_stan, par_hat)
 
 \item{standata}{\itemize{
 \item list of data inputs to be passed to rstan::samlping
-}}
-
-\item{par_stan}{\itemize{
-\item list of potentially constrained parameters from the parameters block of the stan model
 }}
 
 \item{par_hat}{\itemize{
