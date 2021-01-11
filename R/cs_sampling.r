@@ -8,10 +8,10 @@
 #' cs_sampling is a wrapper function. It takes in a svydesign object (survey) and a stan model and inputs (rstan).
 #' It calls the rstan::sampling to generate MCMC draws from the model. The constrained parameters are converted to unconstrained, adjusted, converted back to constrained and then output.
 #' The adjustment process estimates a sandwich matrix adjustment to the posterior variance from two information matrices H and J. 
-#' J is estimated via resampling with the withReplicates. For each set of replicate weights, rstan:sampling is called with no chains to instantiate a stanfit object. 
+#' J is estimated via resampling with survey::withReplicates. For each set of replicate weights, rstan:sampling is called with no chains to instantiate a stanfit object. 
 #' The stanfit object has an associated method grad_log_prob, which returns the gradient for a given input of unconstrained parameters. 
-#' The variance of this gradient is taken across the replicates and provides a estimate of the J matrix
-#' H is a Hessian estimated at the posterior mean via optimHess (stats) using grad_log_prob and the posterior mean as inputs
+#' The variance of this gradient is taken across the replicates and provides a estimate of the J matrix.
+#' H is a Hessian estimated at the posterior mean via optimHess (stats) using grad_log_prob and the posterior mean as inputs.
 #' The asymptotic covariance for the posterior mean is then calculated as Hi V Hi, where Hi is the inverse of H. 
 #' The asymptotic covariance for the posterior sampling procedure (due to mis-specification) is Hi. We take the "sqaure" root of these matrices
 #' via cholesky decomposition R1'R1 = Hi V Hi and R2'R2 = Hi. 
@@ -25,17 +25,17 @@
 #' @import pkgcond
 #' @param svydes - a svydesign object or a svyrepdesign object (see survey package). This contains cluster ID, strata, and weight information (svydesign) or replicate weight information (svyrepdesign)
 #' @param mod_stan - a compiled stan model to be called by rstan::sampling
-#' @param par_stan - a list of subset of parameters to output after adjustment. All parameters are adjusted including the derived parameters, so users may want to only compare subsets. The defualt, NA, will return all parameters.  
-#' @param data_stan - a list of data inputs for rstan::sampling() associated with mod_stan
-#' @param ctrl_stan - a list of control parameters to pass to rstan::sampling(). Currently includes the number of chains, iter, warmpup, and thin with defualts
+#' @param par_stan - a list of a subset of parameters to output after adjustment. All parameters are adjusted including the derived parameters, so users may want to only compare subsets. The default, NA, will return all parameters.  
+#' @param data_stan - a list of data inputs for rstan::sampling associated with mod_stan
+#' @param ctrl_stan - a list of control parameters to pass to rstan::sampling. Currently includes the number of chains, iter, warmup, and thin with defaults
 #' @param rep_design - logical indicating if the svydes object is a svyrepdesign. If FALSE, the design will be converted to a svyrepdesign using ctrl_rep settings
-#' @param ctrl_rep - a list of settings when converting svydes from a svydesign object to a svyrepdesign object. replicates - number of replicate weights. type - the type of replicate method to use, the default is mrbbootstrap which sample half of the clusters in each strata to make each replicate 
-#' @param sampling_args - a list of extra arguments that get passed to sampling.
+#' @param ctrl_rep - a list of settings when converting svydes from a svydesign object to a svyrepdesign object. replicates - number of replicate weights. type - the type of replicate method to use, the default is mrbbootstrap which sample half of the clusters in each strata to make each replicate (see as.svrepdesign). 
+#' @param sampling_args - a list of extra arguments that get passed to rstan::sampling.
 #' @return A list of the following:
 #' \itemize{
 #'  \item stan_fit - the original stanfit object returned by rstan::sampling for the weighted model
-#'  \item sampled_parms - the array of parameters extracted from stan_fit corresponding to the parameter block in the stan model (specificed by stan_pars)
-#'  \item adjusted_parms - the array (or matrix?) of adjusted parameters, corresponding to sampled_parms which have been rescaled and rotated
+#'  \item sampled_parms - the array of parameters extracted from stan_fit corresponding to the parameter block in the stan model (specified by stan_pars)
+#'  \item adjusted_parms - the array of adjusted parameters, corresponding to sampled_parms which have been rescaled and rotated.
 #' }
 #' @export
 
@@ -155,26 +155,26 @@ cs_sampling <- function(svydes, mod_stan, par_stan = NA, data_stan,
 
 #' cs_sampling_brms
 #'
-#'cs_sampling_brms is a wrapper function that takes inputs in the form of model statements in familiar brm syntax
+#'cs_sampling_brms is a wrapper function that takes inputs in the form of model statements in familiar brms syntax.
 #'Then brms helper functions build Stan models and call cs_sampling.
 #'
 #'
 #' @import brms
-#' @param svydes - a svydesign object or a svyrepdesign object (see survey package). This contains cluster ID, strata, and weight information (svydesign) or replicate weight information (svyrepdesign)
-#' @param brmsmod - brmsformula object, as input to brms::make_stancod()
-#' @param par_brms - a list of subset of parameters to output after adjustment. All parameters are adjusted including the derived parameters, so users may want to only compare subsets. The defualt, NA, will return all parameters.  
-#' @param data - a data frame, as input to brms::make_stancod()
-#' @param family - family or brmsfamily as input to brms::make_stancod() specifying distribution and link function
-#' @param prior - optional input to brms::make_stancod()
-#' @param stanvars - optionalinput to brms::make_stancod()
-#' @param knots -optional input to brms::make_stancod()
-#' @param ctrl_stan - a list of control parameters to pass to rstan::sampling(). Currently includes the number of chains, iter, warmpup, and thin with defualts
-#' @param rep_design - logical indicating if the svydes object is a svyrepdesign. If FALSE, the design will be converted to a svyrepdesign using ctrl_rep settings
-#' @param ctrl_rep - a list of settings when converting svydes from a svydesign object to a svyrepdesign object. replicates - number of replicate weights. type - the type of replicate method to use, the default is mrbbootstrap which sample half of the clusters in each strata to make each replicate 
+#' @param svydes - a svydesign object or a svrepdesign object (see survey package). This contains cluster ID, strata, and weight information (svydesign) or replicate weight information (svyrepdesign)
+#' @param brmsmod - brmsformula object, as input to brms::make_stancode. The brmsformula must specify a weight variable via weights().
+#' @param par_brms - a list of a subset of parameters to output after adjustment. All parameters are adjusted including the derived parameters, so users may want to only compare subsets. The default, NA, will return all parameters.  
+#' @param data - a data frame, as input to brms::make_stancode
+#' @param family - family or brmsfamily as input to brms::make_stancod specifying distribution and link function
+#' @param prior - optional input to brms::make_stancode
+#' @param stanvars - optional input to brms::make_stancode
+#' @param knots - optional input to brms::make_stancode
+#' @param ctrl_stan - a list of control parameters to pass to rstan::sampling. Currently includes the number of chains, iter, warmpup, and thin with defaults.
+#' @param rep_design - logical indicating if the svydes object is a svyrepdesign. If FALSE, the design will be converted to a svrepdesign using ctrl_rep settings.
+#' @param ctrl_rep - a list of settings when converting svydes from a svydesign object to a svrepdesign object. replicates - number of replicate weights. type - the type of replicate method to use, the default is mrbbootstrap which sample half of the clusters in each strata to make each replicate (see as.svrepdesign). 
 #' @param stancode_args - a list of extra arguments to be passed to make_stancode.
 #' @param standata_args - a list of extra arguments to be passed to make_standata.
 #' @param sampling_args - a list of extra arguments to be passed to sampling.
-#' @return
+#' @return The output of cs_sampling.
 #'
 #' @export
 cs_sampling_brms <- function(svydes, brmsmod, data, family, par_brms = NA,prior = NULL, stanvars = NULL, knots = NULL, 
@@ -193,10 +193,16 @@ cs_sampling_brms <- function(svydes, brmsmod, data, family, par_brms = NA,prior 
   
 }
 
+#' plot.cs_sampling
+#'
+#' Produce pairwise plots comparing each parameter distribution before and after adjustment. 
+#' Takes the output list from cs_sampling as input.
 #'
 #' @import GGally
 #' @param x - object of type cs_sampling
-#' @param varnames - vector of names of subset of variable for pairs plotting
+#' @param varnames - optional vector of names of subset of variable for pairs plotting
+#' @return The output of ggpairs.
+#' 
 #' @method plot cs_sampling
 #' @export
 plot.cs_sampling <- function(x, varnames = NULL) {
@@ -237,17 +243,19 @@ plot.cs_sampling <- function(x, varnames = NULL) {
 
 
 #' grad_par
+#' 
+#' A helper function to use with withReplicates, which estimates the gradient of the log of Stan probability model for a given set of weights.
 #'
 #' @param par_hat - single set of unconstrained parameters (or estimates like posterior mean) to evaluate the gradient at  
-#' @param pwts - is the weights argument. withReplicates updates this for each set of replicate weights
+#' @param pwts - the weights argument. withReplicates updates this for each set of replicate weights.
 #' @param svydata - allows access to svrepdesign object's associated data. withReplicates expects it, but we do not use it. We use standata instead
 #' @param stanmod - the compiled stan model to be passed to rstan::sampling
-#' @param standata - list of data inputs to be passed to rstan::samlping
-#' @return the gradient of the log posterior evaluated at par_hat
+#' @param standata - list of data inputs to be passed to rstan::sampling
+#' @return the gradient of the log posterior for stanmod evaluated at par_hat
 #' @import pkgcond
 #' @export
 grad_par <- function(pwts, svydata, stanmod, standata,par_hat){
-  #ignore svydata argument it allows access to svy object data
+  #ignore svydata argument - it allows access to svy object data
   standata$weights <- pwts
   
   
@@ -262,6 +270,8 @@ grad_par <- function(pwts, svydata, stanmod, standata,par_hat){
 #helper function to apply matrix rotation
 
 #' DEadj
+#' 
+#' A helper function that shifts, scales, and rotates a 1D array.
 #'
 #' @param par - a 1D array/matrix of parameter values to be rescaled/rotated
 #' @param par_hat - a 1D array/matrix of center values, typically the mean
@@ -273,14 +283,16 @@ DEadj <- function(par, par_hat, R2R1){
   return(par_adj)
 }
 
-#helper function to convert list of MCMC output from stan to input for unconstrained tranformation
+#helper function to convert list of MCMC output from stan to input for unconstrained transformation
 
 
 #' list_2D_row_subset
+#' 
+#' A helper function to convert a list of MCMC output from Stan to input comparable with the unconstrained transformation.
 #'
 #' @param nmlist - a named list whose elements are 1D or 2D arrays with the same number of rows
 #' @param rindex - the row index to subset
-#' @return a names list of types as the input, with elements subset to rows index provided
+#' @return a named list of types as the input, with elements subset to rows index provided
 #' @export
 list_2D_row_subset <- function(nmlist, rindex){
   temp_list <- list()
