@@ -17,58 +17,104 @@ cs_sampling(
 }
 \arguments{
 \item{svydes}{\itemize{
-\item a svydesign object or a svyrepdesign object (see survey package). This contains cluster ID, strata, and weight information (svydesign) or replicate weight information (svyrepdesign)
+\item a \code{\link[survey]{svydesign}} object or a \code{\link[survey]{svrepdesign}} object. This contains cluster ID, strata, and weight information (\code{\link[survey]{svydesign}}) or replicate weight information (\code{\link[survey]{svrepdesign}})
 }}
 
 \item{mod_stan}{\itemize{
-\item a compiled stan model to be called by rstan::sampling
+\item a compiled stan model to be called by \code{\link[rstan]{sampling}}
 }}
 
 \item{par_stan}{\itemize{
-\item a list of subset of parameters to output after adjustment. All parameters are adjusted including the derived parameters, so users may want to only compare subsets. The defualt, NA, will return all parameters.
+\item a list of a subset of parameters to output after adjustment. All parameters are adjusted including the derived parameters, so users may want to only compare subsets. The default, NA, will return all parameters.
 }}
 
 \item{data_stan}{\itemize{
-\item a list of data inputs for rstan::sampling() associated with mod_stan
+\item a list of data inputs for \code{\link[rstan]{sampling}} associated with mod_stan
 }}
 
 \item{ctrl_stan}{\itemize{
-\item a list of control parameters to pass to rstan::sampling(). Currently includes the number of chains, iter, warmpup, and thin with defualts
+\item a list of control parameters to pass to \code{\link[rstan]{sampling}}. Currently includes the number of chains, iter, warmup, and thin with defaults
 }}
 
 \item{rep_design}{\itemize{
-\item logical indicating if the svydes object is a svyrepdesign. If FALSE, the design will be converted to a svyrepdesign using ctrl_rep settings
+\item logical indicating if the svydes object is a \code{\link[survey]{svrepdesign}}. If FALSE, the design will be converted to a \code{\link[survey]{svrepdesign}} using ctrl_rep settings
 }}
 
 \item{ctrl_rep}{\itemize{
-\item a list of settings when converting svydes from a svydesign object to a svyrepdesign object. replicates - number of replicate weights. type - the type of replicate method to use, the default is mrbbootstrap which sample half of the clusters in each strata to make each replicate
+\item a list of settings when converting svydes from a \code{\link[survey]{svydesign}} object to a \code{\link[survey]{svrepdesign}} object. replicates - number of replicate weights. type - the type of replicate method to use, the default is mrbbootstrap which sample half of the clusters in each strata to make each replicate (see \code{\link[survey]{as.svrepdesign}}).
 }}
 
 \item{sampling_args}{\itemize{
-\item a list of extra arguments that get passed to sampling.
+\item a list of extra arguments that get passed to \code{\link[rstan]{sampling}}.
 }}
 }
 \value{
 A list of the following:
 \itemize{
-\item stan_fit - the original stanfit object returned by rstan::sampling for the weighted model
-\item sampled_parms - the array of parameters extracted from stan_fit corresponding to the parameter block in the stan model (specificed by stan_pars)
-\item adjusted_parms - the array (or matrix?) of adjusted parameters, corresponding to sampled_parms which have been rescaled and rotated
+\item stan_fit - the original \code{\link[rstan]{stanfit-class}} object returned by \code{\link[rstan]{sampling}} for the weighted model
+\item sampled_parms - the array of parameters extracted from stan_fit corresponding to the parameter block in the stan model (specified by stan_pars)
+\item adjusted_parms - the array of adjusted parameters, corresponding to sampled_parms which have been rescaled and rotated.
 }
 }
 \description{
-cs_sampling is a wrapper function. It takes in a svydesign object (survey) and a stan model and inputs (rstan).
-It calls the rstan::sampling to generate MCMC draws from the model. The constrained parameters are converted to unconstrained, adjusted, converted back to constrained and then output.
+cs_sampling is a wrapper function. It takes in a \code{\link[survey]{svydesign}} object and a \code{\link[rstan]{stan_model}} and inputs for \code{\link[rstan]{sampling}}.
+It calls the \code{\link[rstan]{sampling}} to generate MCMC draws from the model. The constrained parameters are converted to unconstrained, adjusted, converted back to constrained and then output.
 The adjustment process estimates a sandwich matrix adjustment to the posterior variance from two information matrices H and J.
-J is estimated via resampling with the withReplicates. For each set of replicate weights, rstan:sampling is called with no chains to instantiate a stanfit object.
-The stanfit object has an associated method grad_log_prob, which returns the gradient for a given input of unconstrained parameters.
-The variance of this gradient is taken across the replicates and provides a estimate of the J matrix
-H is a Hessian estimated at the posterior mean via optimHess (stats) using grad_log_prob and the posterior mean as inputs
+J is estimated via resampling with \code{\link[survey]{withReplicates}}. For each set of replicate weights, \code{\link[rstan]{sampling}} is called with no chains to instantiate a \code{\link[rstan]{stanfit-class}} object.
+The \code{\link[rstan]{stanfit-class}} object has an associated method \code{\link[rstan]{grad_log_prob}}, which returns the gradient for a given input of unconstrained parameters.
+The variance of this gradient is taken across the replicates and provides a estimate of the J matrix.
+H is a Hessian estimated at the posterior mean via \code{\link[stats]{optimHess}} using \code{\link[rstan]{grad_log_prob}} and the posterior mean as inputs.
 The asymptotic covariance for the posterior mean is then calculated as Hi V Hi, where Hi is the inverse of H.
 The asymptotic covariance for the posterior sampling procedure (due to mis-specification) is Hi. We take the "sqaure" root of these matrices
 via cholesky decomposition R1'R1 = Hi V Hi and R2'R2 = Hi.
 The final adjustment rescales/rotates the posterior sample by R2iR1 where R2i is the inverse of R2.
 The final adjust can be interpreted as an asymptotic correction for model mis-specification due to using survey sampling weights as plug in values in the likelihood. This is often know as a "design effect" which is the "ratio" between the variance from simple random sample (Hi) and a complex survey sample (HiVHi)
+}
+\examples{
+###Custom Stan Model###
+#Weighted dirichlet-multinomial model
+
+#survey package example
+data(api)
+##make sure weights sum to n##
+apiclus1$newpw <- apiclus1$pw/mean(apiclus1$pw)
+
+dclus1<-svydesign(id=~dnum, weights=~newpw, data=apiclus1, fpc=~fpc)
+svymean(~stype, dclus1)
+
+#Use default replicate design
+rclus1<-as.svrepdesign(dclus1)
+svymean(~stype, rclus1)
+
+#use cs_sampling
+mod_dm <- stan_model(model_code = csSampling::proportion_estimate)
+
+#Set the Data for Stan
+y <- as.factor(rclus1$variables$stype)
+yM <- model.matrix(~y -1)
+n <- dim(yM)[1]
+K <- dim(yM)[2]
+#Uniform prior for alpha for now
+alpha<-rep(1,K)
+weights <- rclus1$pweights
+
+#Create stan Data list
+data_stan<-list("y"=yM,"alpha"=alpha,"K"=K, "n" = n, "weights" = weights)
+ctrl_stan<-list("chains"=1,"iter"=2000,"warmup"=1000,"thin"=1)
+
+mod1 <- cs_sampling(svydes = rclus1, mod_stan = mod_dm, data_stan = data_stan, ctrl_stan = ctrl_stan, rep_design = T)
+
+#plot parameters of interest - proportions (thetas)
+plot(mod1, varnames = paste("theta",1:3, sep = ""))
+#compare summary statistics
+#unadjusted weighted Bayes
+cbind(colMeans(mod1$sampled_parms[,4:6]), sqrt(diag(cov(mod1$sampled_parms[,4:6]))))
+#hybrid variance adjusted
+cbind(colMeans(mod1$adjusted_parms[,4:6]), sqrt(diag(cov(mod1$adjusted_parms[,4:6]))))
+#Taylor linearization
+svymean(~stype, dclus1)
+#Replication
+svymean(~stype, rclus1)
 }
 \references{
 Williams, M. R., and Savitsky, T. D. (2020) Uncertainty Estimation for Pseudo-Bayesian Inference Under Complex Sampling. International Statistical Review, https://doi.org/10.1111/insr.12376.

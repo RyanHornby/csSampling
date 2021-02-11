@@ -23,63 +23,106 @@ cs_sampling_brms(
 }
 \arguments{
 \item{svydes}{\itemize{
-\item a svydesign object or a svyrepdesign object (see survey package). This contains cluster ID, strata, and weight information (svydesign) or replicate weight information (svyrepdesign)
+\item a \code{\link[survey]{svydesign}} object or a \code{\link[survey]{svrepdesign}} object. This contains cluster ID, strata, and weight information (\code{\link[survey]{svydesign}}) or replicate weight information (\code{\link[survey]{svrepdesign}})
 }}
 
 \item{brmsmod}{\itemize{
-\item brmsformula object, as input to brms::make_stancod()
+\item \code{\link[brms]{brmsformula}}  object, as input to \code{\link[brms]{make_stancode}}. The \code{\link[brms]{brmsformula}}  must specify a weight variable via weights().
 }}
 
 \item{data}{\itemize{
-\item a data frame, as input to brms::make_stancod()
+\item a data frame, as input to \code{\link[brms]{make_stancode}}
 }}
 
 \item{family}{\itemize{
-\item family or brmsfamily as input to brms::make_stancod() specifying distribution and link function
+\item \code{\link[stats]{brmsfamily}} or \code{\link[brms]{brmsfamily}} as input to \code{\link[brms]{make_stancode}} specifying distribution and link function
 }}
 
 \item{par_brms}{\itemize{
-\item a list of subset of parameters to output after adjustment. All parameters are adjusted including the derived parameters, so users may want to only compare subsets. The defualt, NA, will return all parameters.
+\item a list of a subset of parameters to output after adjustment. All parameters are adjusted including the derived parameters, so users may want to only compare subsets. The default, NA, will return all parameters.
 }}
 
 \item{prior}{\itemize{
-\item optional input to brms::make_stancod()
+\item optional input to \code{\link[brms]{make_stancode}}
 }}
 
 \item{stanvars}{\itemize{
-\item optionalinput to brms::make_stancod()
+\item optional input to \code{\link[brms]{make_stancode}}
 }}
 
-\item{knots}{-optional input to brms::make_stancod()}
+\item{knots}{\itemize{
+\item optional input to \code{\link[brms]{make_stancode}}
+}}
 
 \item{ctrl_stan}{\itemize{
-\item a list of control parameters to pass to rstan::sampling(). Currently includes the number of chains, iter, warmpup, and thin with defualts
+\item a list of control parameters to pass to \code{\link[rstan]{sampling}}. Currently includes the number of chains, iter, warmpup, and thin with defaults.
 }}
 
 \item{rep_design}{\itemize{
-\item logical indicating if the svydes object is a svyrepdesign. If FALSE, the design will be converted to a svyrepdesign using ctrl_rep settings
+\item logical indicating if the svydes object is a \code{\link[survey]{svrepdesign}}. If FALSE, the design will be converted to a \code{\link[survey]{svrepdesign}} using ctrl_rep settings
 }}
 
 \item{ctrl_rep}{\itemize{
-\item a list of settings when converting svydes from a svydesign object to a svyrepdesign object. replicates - number of replicate weights. type - the type of replicate method to use, the default is mrbbootstrap which sample half of the clusters in each strata to make each replicate
+\item a list of settings when converting svydes from a \code{\link[survey]{svydesign}} object to a \code{\link[survey]{svrepdesign}} object. replicates - number of replicate weights. type - the type of replicate method to use, the default is mrbbootstrap which sample half of the clusters in each strata to make each replicate (see \code{\link[survey]{as.svrepdesign}}).
 }}
 
 \item{stancode_args}{\itemize{
-\item a list of extra arguments to be passed to make_stancode.
+\item a list of extra arguments to be passed to \code{\link[brms]{make_stancode}}.
 }}
 
 \item{standata_args}{\itemize{
-\item a list of extra arguments to be passed to make_standata.
+\item a list of extra arguments to be passed to \code{\link[brms]{make_standata}}.
 }}
 
 \item{sampling_args}{\itemize{
-\item a list of extra arguments to be passed to sampling.
+\item a list of extra arguments to be passed to \code{\link[rstan]{sampling}}.
 }}
 }
 \value{
-
+The output of cs_sampling.
 }
 \description{
-cs_sampling_brms is a wrapper function that takes inputs in the form of model statements in familiar brm syntax
+cs_sampling_brms is a wrapper function that takes inputs in the form of model statements in familiar brms syntax.
 Then brms helper functions build Stan models and call cs_sampling.
+}
+\examples{
+
+####BRMS Wrapper#####
+#Linear regression from survey package api data
+data(api)
+dstrat<-svydesign(id=~1,strata=~stype, weights=~pw, data=apistrat, fpc=~fpc)
+##need to scale the weights in the survey design and in the stan model##
+apistrat$wtsscl <- apistrat$pw *length(apistrat$pw)/sum(apistrat$pw)
+
+dstrat_sc<-svydesign(id=~1,strata=~stype, weights=~wtsscl, data=apistrat, fpc=~fpc)
+###example 1 api00~ell+meals+mobility##
+#Use cs_sampling directly#  
+
+stancode <- make_stancode(brmsformula(api00|weights(wtsscl) ~ ell+meals+mobility,center = FALSE), 
+                         data = apistrat, family = gaussian(), save_model = "brms_wt_lm.stan")
+
+mod_brms  <- stan_model('brms_wt_lm.stan')
+
+data_brms <- make_standata(brmsformula(api00|weights(wtsscl) ~ ell+meals+mobility,center = FALSE), 
+                          data = apistrat, family = gaussian())
+            
+set.seed(12345)
+mod.brms_1 <- cs_sampling(svydes = dstrat_sc, mod_stan = mod_brms, data_stan = data_brms, 
+                         ctrl_stan = list(chains = 2, iter = 2000, warmup = 1000, thin = 2))
+
+#Compare to Wrapper#                          
+set.seed(12345)
+mod.brms_2 <- cs_sampling_brms(svydes = dstrat_sc, 
+                       brmsmod = brmsformula(api00|weights(wtsscl) ~ ell+meals+mobility,center = FALSE), 
+                       data = apistrat, family = gaussian())
+                    
+#compare to svyglm
+summary(svyglm(api00~ell+meals+mobility, design=dstrat_sc))         
+
+#plot all parameters by default
+plot(mod.brms_3)
+plot(mod.brms_3, varnames = paste("b", 1:3, sep =""))
+
+pp <- plot(mod.brms_3)
+pp[2,1]
 }

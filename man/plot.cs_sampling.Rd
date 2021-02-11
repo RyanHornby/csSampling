@@ -12,9 +12,13 @@
 }}
 
 \item{varnames}{\itemize{
-\item vector of names of subset of variable for pairs plotting
+\item optional vector of names of subset of variable for pairs plotting
 }}
 }
+\value{
+The output of \code{\link[GGally]{ggpairs}}.
+}
 \description{
-plot.cs_sampling
+Produce pairwise plots comparing each parameter distribution before and after adjustment.
+Takes the output list from cs_sampling as input.
 }

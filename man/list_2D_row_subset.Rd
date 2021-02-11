@@ -16,8 +16,8 @@ list_2D_row_subset(nmlist, rindex)
 }}
 }
 \value{
-a names list of types as the input, with elements subset to rows index provided
+a named list of types as the input, with elements subset to rows index provided
 }
 \description{
-list_2D_row_subset
+A helper function to convert a list of MCMC output from Stan to input comparable with the unconstrained transformation.
 }

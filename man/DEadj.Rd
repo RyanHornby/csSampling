@@ -23,5 +23,5 @@ DEadj(par, par_hat, R2R1)
 A 1D matrix corresponding to the input par that has been rescaled/rotated
 }
 \description{
-DEadj
+A helper function that shifts, scales, and rotates a 1D array.
 }

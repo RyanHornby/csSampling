@@ -6,14 +6,14 @@
 \alias{csSampling-package}
 \title{csSampling: Complex Survey Sampling}
 \description{
-Cs_sampling provides estimation of Bayesian models for data collected from complex survey samples by combining functionality from Stan (via rstan and brms) and the survey package. The user can create a survey weighted model in brms or provide custom weighted model via rstan. Survey design information is provided via svydesign objects from the survey package. Cs_sampling estimates the weighted stan model and provides an asymptotic covariance correction for model mis-specification due to using survey sampling weights as plug in values in the likelihood. This is often known as a "design effect" which is the "ratio" between the variance from simple random sample and a complex survey sample. See Williams, M. R., and Savitsky, T. D. (2020) Uncertainty Estimation for Pseudo-Bayesian Inference Under Complex Sampling. International Statistical Review, https://doi.org/10.1111/insr.12376.
+cs_sampling provides estimation of Bayesian models for data collected from complex survey samples by combining functionality from Stan (via rstan and brms) and the survey package. The user can create a survey weighted model in brms or provide custom weighted model via rstan. Survey design information is provided via svydesign objects from the survey package. cs_sampling estimates the weighted stan model and provides an asymptotic covariance correction for model mis-specification due to using survey sampling weights as plug in values in the likelihood. This is often known as a "design effect" which is the "ratio" between the variance from simple random sample and a complex survey sample. See Williams, M. R., and Savitsky, T. D. (2020) Uncertainty Estimation for Pseudo-Bayesian Inference Under Complex Sampling. International Statistical Review, https://doi.org/10.1111/insr.12376.
 }
 \details{
 ESTIMATION
 
 \code{\link{cs_sampling}} provides for weighted MCMC estimation of a Bayesian model using survey weights.
 It also provides an asymptotic adjustment to the parameter covariance.
-It takes in a \code{\link[survey]{svydesign}} object (survey) and a \code{\link[rstan]{stan_model}} and inputs for \code{\link[rstan]{sampling}}.
+It takes in a \code{\link[survey]{svydesign}} object and a \code{\link[rstan]{stan_model}} and inputs for \code{\link[rstan]{sampling}}.
 \code{\link{cs_sampling_brms}} is a wrapper function that takes inputs in the form of model statements in familiar brms syntax via \code{\link[brms]{brmsformula}}.
 The brms helper functions \code{\link[brms]{make_stancode}} and \code{\link[brms]{make_standata}} build Stan models.
 The wrapper calls call \code{\link{cs_sampling}}.
@@ -74,34 +74,100 @@ pp[2,1]
 ###Custom Stan Model###
 #Weighted dirichlet-multinomial model
 
-mod_dm <- stan_model('wt_proportion_estimate') #Preload/associated with package
-                                                                                                                           data = apistrat, family = gaussian())
-#Read in Dataset and Set Design
-d<-read_dta("UG_Data for Analysis.dta") #Preload/associated with package
+#survey package example
+data(api)
+##make sure weights sum to n##
+apiclus1$newpw <- apiclus1$pw/mean(apiclus1$pw)
 
-svydes<-svydesign(ids=~cl_id,strata=~str_id,weight=~wtfinal,data=d)
-rep_dsn<-as.svrepdesign(svydes,"mrbbootstrap",replicates=1000)
+dclus1<-svydesign(id=~dnum, weights=~newpw, data=apiclus1, fpc=~fpc)
+svymean(~stype, dclus1)
 
-#Quick look at the estimates from survey package
-svymean(~as.factor(voteinlean),rep_dsn,return.replicates=TRUE)
+#Use default replicate design
+rclus1<-as.svrepdesign(dclus1)
+svymean(~stype, rclus1)
+
+#use cs_sampling
+mod_dm <- stan_model(model_code = csSampling::proportion_estimate)
 
 #Set the Data for Stan
-y <- as.factor(rep_dsn$variables$voteinlean)
+y <- as.factor(rclus1$variables$stype)
 yM <- model.matrix(~y -1)
 n <- dim(yM)[1]
 K <- dim(yM)[2]
 #Uniform prior for alpha for now
 alpha<-rep(1,K)
+weights <- rclus1$pweights
 
 #Create stan Data list
-data_stan<-list("y"=yM,"alpha"=alpha,"K"=K, "n" = n, 
-               "weights" = c(rep_dsn$variables$wtfinal))#weights already sum to n
+data_stan<-list("y"=yM,"alpha"=alpha,"K"=K, "n" = n, "weights" = weights)
+ctrl_stan<-list("chains"=1,"iter"=2000,"warmup"=1000,"thin"=1)
 
-ctrl_stan<-list("chains"=1,"iter"=3000,"warmup"=500,"thin"=1)
+mod1 <- cs_sampling(svydes = rclus1, mod_stan = mod_dm, data_stan = data_stan, ctrl_stan = ctrl_stan, rep_design = T)
 
-mod1 <- cs_sampling(svydes = rep_dsn, mod_stan = mod, par_stan = par_stan, data_stan = data_stan,
-          ctrl_stan = ctrl_stan, rep_design = T,ctrl_rep = NULL)
-plot(mod1)           
+#plot parameters of interest - proportions (thetas)
+plot(mod1, varnames = paste("theta",1:3, sep = ""))
+#compare summary statistics
+#unadjusted weighted Bayes
+cbind(colMeans(mod1$sampled_parms[,4:6]), sqrt(diag(cov(mod1$sampled_parms[,4:6]))))
+#hybrid variance adjusted
+cbind(colMeans(mod1$adjusted_parms[,4:6]), sqrt(diag(cov(mod1$adjusted_parms[,4:6]))))
+#Taylor linearization
+svymean(~stype, dclus1)
+#Replication
+svymean(~stype, rclus1)
+
+####Weighted Logistic Regression for NSDUH####
+
+#import NSDUH data
+#https://www.datafiles.samhsa.gov/study-dataset/national-survey-drug-use-and-health-2014-nsduh-2014-ds0001-nid16876)#
+#load(file = "NSDUH_2014.RData")
+ 
+#subset and clean up the large file#
+#library(stringr)
+#change names to all upper case
+#names(PUF2014_090718) <- str_to_upper(names(PUF2014_090718))
+
+#QUESTID2: individual ID
+#CIGMON: past month smoking
+#AMDEY2_U: past year depression (adults)
+#CATAG6: Age groups
+#ANALWT_C: analysis weights
+#VESTR: Variance estimation strata
+#VEREP: Variance estimation PSU (nested within strata)
+#dat14 <- PUF2014_090718[,c("QUESTID2","CIGMON", "AMDEY2_U", "CATAG6", "ANALWT_C", "VESTR", "VEREP")]
+#rm(PUF2014_090718);gc(); #clean up memory
+#Compile Stan model
+#mod  <- stan_model('wt_logistic.stan')# compile stan code (doi:10.1214/18-BA1143SUPP)
+
+#Skip steps above, dat14 and mod loaded with csSampling
+
+dat14 <- csSampling::dat14
+mod <- csSampling::mod
+#subset to adults
+dat14 <- dat14[as.numeric(dat14$CATAG6) > 1,]
+
+#normalize weights to sum to sample size
+dat14$WTS <- dat14$ANALWT_C*(length(dat14$ANALWT_C)/sum(dat14$ANALWT_C))
+#create survey design object#
+svy14 <- svydesign(ids = ~VEREP, strata = ~VESTR, weights = ~WTS, data = dat14, nest = TRUE)
+
+#create list of inputs#
+X <- model.matrix( ~ AMDEY2_U, data = dat14)
+y <- dat14$CIGMON
+k   <- dim(X)[2]
+n   <- length(y)
+weights <- dat14$WTS
+
+#list of inputs
+data_stan <- list(y = array(y, dim = n), X = X, k = k, n = n, weights = array(weights, dim = n) )
+par_stan <- c("beta") #subset of parameters interested in
+
+#run Stan and adjustment code
+set.seed(12345) #set seed to fix output for comparison
+mod1 <- cs_sampling(svydes = svy14, mod_stan = mod, par_stan = par_stan, 
+                   data_stan = data_stan, ctrl_stan = list(chains = 1, iter = 40, warmup = 20, thin = 1), sampling_args = list(cores = FALSE))
+plot(mod1)
+
 }
 \author{
 \strong{Maintainer}: Ryan Hornby \email{ryanhornby1999@gmail.com}

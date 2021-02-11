@@ -8,19 +8,19 @@ grad_par(pwts, svydata, stanmod, standata, par_hat)
 }
 \arguments{
 \item{pwts}{\itemize{
-\item is the weights argument. withReplicates updates this for each set of replicate weights
+\item the weights argument. \code{\link[survey]{withReplicates}} updates this for each set of replicate weights.
 }}
 
 \item{svydata}{\itemize{
-\item allows access to svrepdesign object's associated data. withReplicates expects it, but we do not use it. We use standata instead
+\item allows access to \code{\link[survey]{svrepdesign}} object's associated data. \code{\link[survey]{withReplicates}} expects it, but we do not use it. We use standata instead
 }}
 
 \item{stanmod}{\itemize{
-\item the compiled stan model to be passed to rstan::sampling
+\item the compiled stan model to be passed to \code{\link[rstan]{sampling}}
 }}
 
 \item{standata}{\itemize{
-\item list of data inputs to be passed to rstan::samlping
+\item list of data inputs to be passed to \code{\link[rstan]{sampling}}
 }}
 
 \item{par_hat}{\itemize{
@@ -28,8 +28,8 @@ grad_par(pwts, svydata, stanmod, standata, par_hat)
 }}
 }
 \value{
-the gradient of the log posterior evaluated at par_hat
+the gradient of the log posterior for stanmod evaluated at par_hat
 }
 \description{
-grad_par
+A helper function to use with \code{\link[survey]{withReplicates}}, which estimates the gradient of the log of Stan probability model for a given set of weights.
 }
