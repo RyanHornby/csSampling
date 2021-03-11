@@ -30,6 +30,9 @@ apply a custom estimation function for use with \code{\link[survey]{withReplicat
 }
 \examples{
 library(csSampling)
+library(rstan)
+library(brms)
+library(survey)
 rstan_options(auto_write = TRUE)
 
 ####BRMS Wrapper#####
@@ -65,10 +68,10 @@ mod.brms_2 <- cs_sampling_brms(svydes = dstrat_sc,
 summary(svyglm(api00~ell+meals+mobility, design=dstrat_sc))         
 
 #plot all parameters by default
-plot(mod.brms_3)
-plot(mod.brms_3, varnames = paste("b", 1:3, sep =""))
+plot(mod.brms_1)
+plot(mod.brms_1, varnames = paste("b", 1:3, sep =""))
 
-pp <- plot(mod.brms_3)
+pp <- plot(mod.brms_1)
 pp[2,1]
 
 ###Custom Stan Model###
