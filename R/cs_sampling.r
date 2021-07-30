@@ -379,19 +379,18 @@ DEadj <- function(par, par_hat, R2R1){
 #' 
 #' A helper function to convert a list of MCMC output from Stan to input comparable with the unconstrained transformation.
 #'
-#' @param nmlist - a named list whose elements are 1D or 2D arrays with the same number of rows
+#' @param nmlist - a named list whose elements are mutli-dimensional arrays with the same number of rows (first dimension)
 #' @param rindex - the row index to subset
 #' @return a named list of types as the input, with elements subset to rows index provided
 #' @export
 list_2D_row_subset <- function(nmlist, rindex){
   temp_list <- list()
-  k <- length(nmlist)
-  for(k in 1:length(nmlist))
-    if(is.na(dim(nmlist[[k]])[2])){#if the list element is only one dimension (not two)
-      eval(parse(text = paste("temp_list$",names(nmlist)[k], " <- ", 
-                              "(nmlist$",names(nmlist)[k], ")[rindex]", sep = "")))
-    }else{eval(parse(text = paste("temp_list$",names(nmlist)[k], " <- ", 
-                                  "(nmlist$",names(nmlist)[k], ")[rindex,]", sep = "")))
-    }
+  for (k in 1:length(nmlist)){ 
+    ldim <- length(dim(nmlist[[k]]))
+    lcommas <- paste(rep(",", ldim -1), collapse = " ")
+    eval(parse(text = paste("temp_list$", names(nmlist)[k], 
+                            " <- ", "(nmlist$", names(nmlist)[k], ")[rindex", lcommas, "]", 
+                            sep = "")))
+  }
   return(temp_list)
 }
