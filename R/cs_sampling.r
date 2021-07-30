@@ -176,8 +176,8 @@ cs_sampling <- function(svydes, mod_stan, par_stan = NA, data_stan,
   R1 <- R1[, order(pivot)]
   
   R2 <- chol(Hi, pivot = TRUE)
-  pivot2 <- attr(R2, "pivot2")
-  R2 <- R2[, order(pivot)]
+  pivot2 <- attr(R2, "pivot")
+  R2 <- R2[, order(pivot2)]
   R2i <- solve(R2)
   R2iR1 <- R2i%*%R1
   
