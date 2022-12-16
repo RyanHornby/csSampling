@@ -1,0 +1,1 @@
+The figures in this folder are for the html vignette.
