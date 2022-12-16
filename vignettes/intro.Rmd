@@ -1,0 +1,187 @@
+---
+title: "Introduction to csSampling"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Introduction to csSampling}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+  
+author:
+  - name: Ryan Hornby
+    affiliation: |
+      | Vassar College \AND
+    address: |
+      | Poughkeepsie, NY, USA
+    # use this syntax to add text on several lines
+    email: \email{rhornby@vassar.edu}
+    url: https://github.com/RyanHornby
+  - name: Matthew R. Williams
+    address: |
+      | VA, USA
+    affiliation: |
+      | RTI International
+    email: \email{mrwilliams@rti.org}
+    # To add another line, use \AND at the end of the previous one as above
+  - name: Terrance D. Savitsky
+    address: |
+      | Washington, DC, USA
+    affiliation: |
+      | Office of Survey Methods Research
+      | Bureau of Labor Statistics
+    email: \email{Savitsky.Terrance@bls.gov}
+  - name: Mahmoud Elkasabi
+    address: |
+      | MD, USA
+    affiliation: |
+      | RTI International
+    email: \email{melkasabi@rti.org}
+---
+
+  We present csSampling, an R package for estimation of Bayesian models for data collected from complex survey samples. csSampling combines functionality from the probabilistic programming language Stan (via the rstan and brms R packages) and the survey R package. Under the proposed approach, the user creates a survey weighted model in brms or provides custom weighted model via rstan. Survey design information is provided via svydesign function of the survey package. The cs_sampling function of csSampling estimates the weighted stan model and provides an asymptotic covariance correction for model mis-specification due to using survey sampling weights as plug in values in the likelihood. This is often known as a design effect which is the ratio between the variance from complex survey sample and a simple random sample.
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r echo=TRUE, message=FALSE, warning = FALSE}
+library(csSampling)
+library(rstan)
+library(brms)
+library(survey)
+rstan_options(auto_write = TRUE)
+```
+
+## Example 1: continuous dependent variable
+
+Survey Design Information
+
+```{r, echo = TRUE, message = FALSE}
+data(api)
+apistrat$wt <- apistrat$pw /mean(apistrat$pw)
+
+dstrat <-
+  svydesign(id=~1,strata=~stype, weights=~wt, data=apistrat, fpc=~fpc)
+
+```
+
+Define and Run the Stan Model Via BRMS Wrapper
+
+```{r echo = TRUE, message=FALSE, warning=FALSE, cache=TRUE, include=TRUE}
+set.seed(12345)
+model_formula <- formula("api00|weights(wt) ~ 
+                            ell + meals + mobility")
+mod.brms <- cs_sampling_brms(svydes = dstrat, 
+    brmsmod = brmsformula(model_formula, center = F), 
+    data = apistrat, family = gaussian())
+```
+
+Plot the Results
+
+```{r message=FALSE, warning=FALSE, cache=FALSE, include=FALSE}
+plot(mod.brms)
+```
+
+```{r echo = TRUE, out.width = ".45\\linewidth", fig.show = "hold"}
+plot(mod.brms)
+plot(mod.brms, varnames = paste("b", 1:4, sep =""))
+```
+
+## Example 2: multinomial dependent variable
+
+```{r echo = TRUE,message=FALSE, warning=FALSE, include=TRUE}
+data(api)
+apiclus1$wt <- apiclus1$pw/mean(apiclus1$pw)
+dclus1<-svydesign(id=~dnum, weights=~wt, data=apiclus1, fpc=~fpc)
+rclus1<-as.svrepdesign(dclus1)
+svymean(~stype, rclus1)
+```
+
+Construct a Stan mode
+
+```{r echo = TRUE, message=FALSE, warning=FALSE, include=TRUE, cache = TRUE}
+mod_dm <- stan_model(model_code = load_wt_multi_model())
+```
+
+Prepare data for Stan modelling
+
+```{r echo = TRUE, message=FALSE, warning=FALSE, include=TRUE}
+#Set the Data for Stan
+y <- as.factor(rclus1$variables$stype)
+yM <- model.matrix(~y -1)
+n <- dim(yM)[1]
+K <- dim(yM)[2]
+alpha<-rep(1,K)
+weights <- rclus1$pweights
+data_stan<-list("y"=yM,"alpha"=alpha,"K"=K, "n" = n, "weights" = weights)
+ctrl_stan<-list("chains"=1,"iter"=2000,"warmup"=1000,"thin"=1)
+```
+
+Run the Stan mode
+
+```{r echo = TRUE, message = FALSE, warning = FALSE, cache = TRUE}
+mod1 <- cs_sampling(svydes = rclus1, mod_stan = mod_dm, 
+                    data_stan = data_stan, ctrl_stan = ctrl_stan, rep_design = T)
+```
+
+Plot the results
+
+```{r echo = TRUE, out.width = ".45\\linewidth", fig.show = "hold"}
+plot(mod1)
+plot(mod1, varnames = paste("theta",1:3, sep = ""))
+```
+
+Compare Summary Statistics
+
+```{r echo = TRUE}
+#hybrid variance adjustedM2
+cbind(colMeans(mod1$adjusted_parms[,4:6]), 
+      sqrt(diag(cov(mod1$adjusted_parms[,4:6]))))
+#Replication
+svymean(~stype, rclus1)
+```
+
+## Example 3: Bernoulli-distributed dependent variable
+
+```{r echo = TRUE, cache = TRUE}
+dat14 <- csSampling::dat14
+#subset to adults
+dat14 <- dat14[as.numeric(dat14$CATAG6) > 1,]
+#normalize weights to sum to sample size
+dat14$WTS <- dat14$ANALWT_C/mean(dat14$ANALWT_C)
+svy14 <- svydesign(ids = ~VEREP, strata = ~VESTR, 
+                   weights = ~WTS, data = dat14, nest = T)
+```
+
+Construct a Stan model
+
+```{r echo = TRUE}
+
+model_formula <- formula("CIGMON|weights(WTS) ~ AMDEY2_U")
+stancode <- make_stancode(brmsformula(model_formula,center = F), 
+		data = dat14, family = bernoulli(), save_model = "brms_wt_log.stan")
+mod_brms  <- stan_model('brms_wt_log.stan')
+```
+
+Prepare data for Stan modelling
+
+```{r echo = TRUE}
+data_brms <- make_standata(brmsformula(CIGMON|weights(WTS) ~ AMDEY2_U,center = FALSE), 
+		data = dat14, family = bernoulli())
+```
+
+Run the Stan model
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE, cache = TRUE}
+set.seed(12345) #set seed to fix output for comparison
+mod.brms <- cs_sampling(svydes = svy14, mod_stan = mod_brms, data_stan = data_brms)
+```
+
+Plot the results
+
+```{r echo = TRUE, out.width = ".45\\linewidth", fig.show = "hold"}
+plot(mod.brms, varnames = paste("b", 1:2, sep =""))
+
+```
