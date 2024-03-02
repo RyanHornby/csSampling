@@ -262,11 +262,24 @@ cs_sampling <- function(svydes, mod_stan, par_stan = NA, data_stan,
   upar_adj <- plyr::aaply(upar_samps, 1, DEadj, par_hat = upar_hat, R2R1 = R2iR1, .drop = TRUE)
 
   #back transform to constrained parameter space
-  for(i in 1:dim(upar_adj)[1]){
-    if(i == 1){par_adj <- unlist(rstan::constrain_pars(out_stan, upar_adj[i,])[par_stan])#drop derived quantities
-    }else{par_adj <- rbind(par_adj, unlist(rstan::constrain_pars(out_stan, upar_adj[i,])[par_stan]))}
+  #treat 1 dimensional parameter as special due to dimension drop
+  if(is.null(dim(upar_adj))){
+    upardim <- length(upar_adj)
+    for (i in 1:upardim) {
+      if (i == 1) {
+        par_adj <- unlist(rstan::constrain_pars(out_stan, 
+                                                upar_adj[i])[par_stan])
+      }else {
+        par_adj <- rbind(par_adj, unlist(rstan::constrain_pars(out_stan, upar_adj[i])[par_stan]))
+      }
+    }
+  }else{
+    upardim <- dim(upar_adj)[1]
+    for(i in 1:upardim){
+      if(i == 1){par_adj <- unlist(rstan::constrain_pars(out_stan, upar_adj[i,])[par_stan])#drop derived quantities
+      }else{par_adj <- rbind(par_adj, unlist(rstan::constrain_pars(out_stan, upar_adj[i,])[par_stan]))}
+    }
   }
-
   #make sure names are the same for sampled and adjusted parms
   row.names(par_adj) <- 1:dim(par_samps)[1]
   colnames(par_samps) <- colnames(par_adj)
