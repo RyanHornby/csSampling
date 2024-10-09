@@ -8,6 +8,7 @@ grad_par <- function(pwts, svydata, stanmod, standata,par_hat){
 
   pkgcond::suppress_messages(out_stan  <- rstan::sampling(object = stanmod, data = standata,
                                           chains = 0, warmup = 0,), "the number of chains is less than 1")
+  print("##Evaluating Replicate Gradient##") #status message for user (per replicate)
 
   gradpar <- rstan::grad_log_prob(out_stan,par_hat)
   return(gradpar)

@@ -1,7 +1,7 @@
 Package: csSampling
 Type: Package
 Title: Complex Survey Sampling
-Version: 0.1.0
+Version: 0.2.0
 Author: Matthew Williams <mrwilliams@rti.org>
 Maintainer: Mahmoud Elkasabi <melkasabi@rti.org>
 Description: cs_sampling provides estimation of Bayesian models for data collected from complex survey samples by combining functionality from Stan (via rstan and brms) and the survey package. 
@@ -13,7 +13,7 @@ License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.2.1
+RoxygenNote: 7.3.2
 VignetteBuilder: knitr
 Depends: R (>= 3.5.0)
 Imports: brms, rstan, survey, pkgcond, plyr, GGally, ggplot2

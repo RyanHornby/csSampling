@@ -3,6 +3,7 @@
 S3method(plot,cs_sampling)
 export(cs_sampling)
 export(cs_sampling_brms)
+export(cs_sampling_legacy)
 export(load_wt_multi_model)
 import(GGally)
 import(brms)

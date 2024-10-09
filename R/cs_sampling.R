@@ -168,7 +168,7 @@ cs_sampling <- function(svydes, mod_stan, par_stan = NA, data_stan,
   }
 
 
-  print("stan fitting")
+  print("(1) stan fitting (1)")
   out_stan  <- do.call(rstan::sampling, c(list(object = mod_stan, data = data_stan,
                                                pars = par_stan,
                                                chains = ctrl_stan$chains,
@@ -188,24 +188,37 @@ cs_sampling <- function(svydes, mod_stan, par_stan = NA, data_stan,
   #concatenate across multiple chains - save for later for export
   par_samps <- as.matrix(out_stan, pars = par_stan)
 
+  #number of MCMC draws
+  ndraws <- dim(par_samps)[1]
+
+  print("(2) Transforming Parameters (2)")
   #convert to list type input > convert to unconstrained parameterization > back to matrix/array
+  ##This is the bottleneck###
+
+  #preallocate upar_samps ahead of time instead of using rbind
+  tmplist <- list_2D_row_subset(par_samps_list, 1)
+  upar_samps_init <- unconstrain_pars(out_stan, tmplist)
+  upar_samps <- matrix(data = NA, nrow = ndraws, ncol = length(upar_samps_init))
+
   if(H_estimate == "MCMC"){ #Average Hessian across MCMC draws
-    for (i in 1:dim(par_samps)[1]) {
+    for (i in 1:ndraws) {
+      if(i %% 500 == 0){print(paste0("Converting draw ", i))} #status message for user
       tmplist <- list_2D_row_subset(par_samps_list, i)
+      upar_samps[i,] <- rstan::unconstrain_pars(out_stan, tmplist)
+      # just need to convert rvar type to numeric within each variable (list entry)
       if (i == 1) {
-        upar_samps <- unconstrain_pars(out_stan, tmplist)
-        Hmcmc <- -1 * stats::optimHess(upar_samps, gr = function(x) {grad_log_prob(out_stan, x)})/dim(par_samps)[1]   #add H estimates
+      #add H estimates
+        Hmcmc <- -1 * stats::optimHess(upar_samps[i,], gr = function(x) {grad_log_prob(out_stan, x)})/ndraws
       }
       else {
-        upar_tmp <- unconstrain_pars(out_stan, tmplist)
-        upar_samps <- rbind(upar_samps, upar_tmp)
-        Hmcmc <- Hmcmc  - 1 * stats::optimHess(upar_tmp, gr = function(x) {grad_log_prob(out_stan, x)})/dim(par_samps)[1]
+        Hmcmc <- Hmcmc  - 1 * stats::optimHess(upar_samps[i,], gr = function(x) {grad_log_prob(out_stan, x)})/ndraws
       }
     }
   }else{
-    for(i in 1:dim(par_samps)[1]){#just need the length here
-      if(i == 1){upar_samps <- rstan::unconstrain_pars(out_stan, list_2D_row_subset(par_samps_list, i))
-      }else{upar_samps <- rbind(upar_samps, rstan::unconstrain_pars(out_stan, list_2D_row_subset(par_samps_list, i)))}
+    for(i in 1:ndraws){#just need the length here
+      if(i %% 500 == 0){print(paste0("Converting draw ", i))} #status message for user
+      tmplist <- list_2D_row_subset(par_samps_list, i)
+      upar_samps[i,] <- rstan::unconstrain_pars(out_stan, tmplist)
     }
   }
 
@@ -226,11 +239,13 @@ cs_sampling <- function(svydes, mod_stan, par_stan = NA, data_stan,
   }
 
   #Estimate Jhat = Var(gradient)
-  print("gradient evaluation")
+  print("(3) Estimating Replicate Variance (3)")
+  #perhaps a slowdown for large number of samples/data?
   rep_tmp <- survey::withReplicates(design = svyrep, theta = grad_par, stanmod = mod_stan,
                                     standata = data_stan, par_hat = upar_hat)#note upar_hat
   Jhat <- stats::vcov(rep_tmp)
 
+  print("(4) Estimating Adjustment (4)")
   #compute adjustment
   #use pivot for numerical stability - close to positive semi-definite if some parameters are highly correlated
   #(Q <- chol(m, pivot = TRUE))
@@ -259,29 +274,38 @@ cs_sampling <- function(svydes, mod_stan, par_stan = NA, data_stan,
   R2iR1 <- R2i%*%R1
 
   #adjust samples
+  print("(5) Applying Adjustment (5)")
   upar_adj <- plyr::aaply(upar_samps, 1, DEadj, par_hat = upar_hat, R2R1 = R2iR1, .drop = TRUE)
 
   #back transform to constrained parameter space
-  #treat 1 dimensional parameter as special due to dimension drop
-  if(is.null(dim(upar_adj))){
-    upardim <- length(upar_adj)
+  #special cases (4) needed for combinations of constrained and unconstrained par have 1 dimension
+  #not likely/possible for unconstrained dim > constrained so one case might never be used
+
+  print("(6) Backtransforming Parameters (6)")
+  if(is.null(dim(upar_adj))){upardim <- length(upar_adj)
+    upardim <- dim(upar_adj)[1] #treat 1 dimensional parameter as special due to dimension drop
+    par_adj_tmp <- unlist(rstan::constrain_pars(out_stan, upar_adj[1])[par_stan])
+    par_adj <- matrix(data = NA, nrow = upardim, ncol = length(par_adj_tmp))
     for (i in 1:upardim) {
-      if (i == 1) {
-        par_adj <- unlist(rstan::constrain_pars(out_stan, 
-                                                upar_adj[i])[par_stan])
-      }else {
-        par_adj <- rbind(par_adj, unlist(rstan::constrain_pars(out_stan, upar_adj[i])[par_stan]))
-      }
-    }
+      if(i %% 500 == 0){print(paste0("Back Converting draw ", i))} #status message for user
+      if(upardim == 1){par_adj[i] <- unlist(rstan::constrain_pars(out_stan, upar_adj[i])[par_stan])
+      }else{par_adj[i,] <- unlist(rstan::constrain_pars(out_stan, upar_adj[i])[par_stan])}
+    }#treat 1 dimensional parameter as special due to dimension drop
   }else{
-    upardim <- dim(upar_adj)[1]
-    for(i in 1:upardim){
-      if(i == 1){par_adj <- unlist(rstan::constrain_pars(out_stan, upar_adj[i,])[par_stan])#drop derived quantities
-      }else{par_adj <- rbind(par_adj, unlist(rstan::constrain_pars(out_stan, upar_adj[i,])[par_stan]))}
-    }
-  }
+    upardim <- dim(upar_adj)[1] #treat 1 dimensional parameter as special due to dimension drop
+    #only difference between top and bottom is the comma [i,] for different dimensions
+    par_adj_tmp <- unlist(rstan::constrain_pars(out_stan, upar_adj[1,])[par_stan])
+    par_adj <- matrix(data = NA, nrow = upardim, ncol = length(par_adj_tmp))
+    for (i in 1:upardim) {
+      if(i %% 500 == 0){print(paste0("Back Converting draw ", i))} #status message for user
+      if(upardim == 1){par_adj[i] <- unlist(rstan::constrain_pars(out_stan, upar_adj[i,])[par_stan])#never happen?
+      }else{par_adj[i,] <- unlist(rstan::constrain_pars(out_stan, upar_adj[i,])[par_stan])}
+    }#treat 1 dimensional parameter as special due to dimension drop
+  }#end else
+
+
   #make sure names are the same for sampled and adjusted parms
-  row.names(par_adj) <- 1:dim(par_samps)[1]
+  row.names(par_adj) <- 1:ndraws
   colnames(par_samps) <- colnames(par_adj)
 
   rtn = list(stan_fit = out_stan, sampled_parms = par_samps, adjusted_parms = par_adj)
