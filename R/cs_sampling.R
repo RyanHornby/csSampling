@@ -286,6 +286,7 @@ cs_sampling <- function(svydes, mod_stan, par_stan = NA, data_stan,
     upardim <- dim(upar_adj)[1] #treat 1 dimensional parameter as special due to dimension drop
     par_adj_tmp <- unlist(rstan::constrain_pars(out_stan, upar_adj[1])[par_stan])
     par_adj <- matrix(data = NA, nrow = upardim, ncol = length(par_adj_tmp))
+    colnames(par_adj) <- names(par_adj_tmp)
     for (i in 1:upardim) {
       if(i %% 500 == 0){print(paste0("Back Converting draw ", i))} #status message for user
       if(upardim == 1){par_adj[i] <- unlist(rstan::constrain_pars(out_stan, upar_adj[i])[par_stan])
@@ -296,6 +297,7 @@ cs_sampling <- function(svydes, mod_stan, par_stan = NA, data_stan,
     #only difference between top and bottom is the comma [i,] for different dimensions
     par_adj_tmp <- unlist(rstan::constrain_pars(out_stan, upar_adj[1,])[par_stan])
     par_adj <- matrix(data = NA, nrow = upardim, ncol = length(par_adj_tmp))
+    colnames(par_adj) <- names(par_adj_tmp)
     for (i in 1:upardim) {
       if(i %% 500 == 0){print(paste0("Back Converting draw ", i))} #status message for user
       if(upardim == 1){par_adj[i] <- unlist(rstan::constrain_pars(out_stan, upar_adj[i,])[par_stan])#never happen?
