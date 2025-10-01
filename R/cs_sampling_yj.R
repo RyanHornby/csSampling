@@ -1,6 +1,6 @@
-#' cs_sampling_legacy
+#' cs_sampling_yj
 #'
-#' This is an older version of \code{cs_sampling} kept for compatability with older releases. It is a wrapper function. It takes in a \code{\link[survey]{svydesign}} object and a \code{\link[rstan]{stan_model}} and inputs for \code{\link[rstan]{sampling}}.
+#' \code{cs_sampling} is a wrapper function. It takes in a \code{\link[survey]{svydesign}} object and a \code{\link[rstan]{stan_model}} and inputs for \code{\link[rstan]{sampling}}.
 #' It calls the \code{\link[rstan]{sampling}} to generate MCMC draws from the model. The constrained parameters are converted to unconstrained, adjusted, converted back to constrained and then output.
 #' The adjustment process estimates a sandwich matrix adjustment to the posterior variance from two information matrices H and J.
 #' J is estimated via resampling with \code{\link[survey]{withReplicates}}. For each set of replicate weights, \code{\link[rstan]{sampling}} is called with no chains to instantiate a \code{\link[rstan]{stanfit-class}} object.
@@ -37,6 +37,16 @@
 #'
 #' @param matrix_sqrt - a string indicating the method to use to take the "square root" of the R1 and R2 matrices. The default "eigen" uses the eigenvalue decomposition. Otherwise, the Cholesky decomposition is used.
 #'
+#' @param diag_only - a logical indicating whether the variance adjustment should only use diagonals of H and J.
+#'
+#' @param subset_matrix - an index of (unconstrained) parameters to subset the adjustment. Requires knowledge of the stan model parameterization.
+#' 
+#' @param prior_only - a logical indicating if the stan model has an option for sampling just from the prior distribution. This can be used to further refine the estimates for covariances H and J.
+#'
+#' @param export_unconst_pars - a logical indicating whether to return the unconstrained parameters, both original and adjusted.
+#' 
+#' @param yj_range - a vector of the form c(lower, upper) to provide a range for the Yeo-Johnson transformation for parameter usually between (-3,3). Narrower values provide stability for inverting the transformation on the adjusted parameters.
+#'
 #' @param sampling_args - a list of extra arguments that get passed to \code{\link[rstan]{sampling}}.
 #'
 #' @import rstan
@@ -44,6 +54,8 @@
 #' @import plyr
 #' @import pkgcond
 #'
+#'
+#' 
 #'
 #'
 #' @return A list of the following:
@@ -54,11 +66,15 @@
 #' }
 #'
 #' @export
-cs_sampling_legacy <- function(svydes, mod_stan, par_stan = NA, data_stan,
+cs_sampling_yj <- function(svydes, mod_stan, par_stan = NA, data_stan,
                         ctrl_stan = list(chains = 1, iter = 2000, warmup = 1000, thin = 1),
                         rep_design = FALSE, ctrl_rep = list(replicates = 100, type = "mrbbootstrap"),
-                        H_estimate = "MCMC",
                         matrix_sqrt = "eigen",
+                        diag_only = FALSE,
+                        subset_matrix = NULL,
+                        prior_only = FALSE,
+                        export_unconst_pars = FALSE,
+                        yj_range = c(-2.5,2.5),
                         sampling_args = list()){
 
   #Check weights
@@ -86,8 +102,18 @@ cs_sampling_legacy <- function(svydes, mod_stan, par_stan = NA, data_stan,
     warning("Sum of the weights may not equal the sample size")
   }
 
+  
+  #Estimate Hessian for Prior
+  if(prior_only){
+  print("(0) Setting up Prior-Only Model (0)")
+    prior_data <- data_stan
+    prior_data$prior_only <- 1 #should convert to integer of 1
+    pkgcond::suppress_messages(out_stan_prior  <- rstan::sampling(object = mod_stan, data = prior_data,
+                                                                  chains = 0, warmup = 0,), "the number of chains is less than 1")
+    
+  }
 
-  print("stan fitting")
+  print("(1) stan fitting (1)")
   out_stan  <- do.call(rstan::sampling, c(list(object = mod_stan, data = data_stan,
                                                pars = par_stan,
                                                chains = ctrl_stan$chains,
@@ -107,37 +133,69 @@ cs_sampling_legacy <- function(svydes, mod_stan, par_stan = NA, data_stan,
   #concatenate across multiple chains - save for later for export
   par_samps <- as.matrix(out_stan, pars = par_stan)
 
+  #number of MCMC draws
+  ndraws <- dim(par_samps)[1]
+
+  print("(2) Transforming Parameters (2)")
   #convert to list type input > convert to unconstrained parameterization > back to matrix/array
-  if(H_estimate == "MCMC"){ #Average Hessian across MCMC draws
-    for (i in 1:dim(par_samps)[1]) {
+  ##This is the bottleneck###
+
+  #preallocate upar_samps ahead of time instead of using rbind
+  tmplist <- list_2D_row_subset(par_samps_list, 1)
+  upar_samps_init <- unconstrain_pars(out_stan, tmplist)
+  upar_samps <- matrix(data = NA, nrow = ndraws, ncol = length(upar_samps_init))
+
+#transform parameters
+ 
+    for(i in 1:ndraws){#just need the length here
+      if(i %% 500 == 0){print(paste0("Converting draw ", i))} #status message for user
       tmplist <- list_2D_row_subset(par_samps_list, i)
-      if (i == 1) {
-        upar_samps <- unconstrain_pars(out_stan, tmplist)
-        Hmcmc <- -1 * stats::optimHess(upar_samps, gr = function(x) {grad_log_prob(out_stan, x)})/dim(par_samps)[1]   #add H estimates
-      }
-      else {
-        upar_tmp <- unconstrain_pars(out_stan, tmplist)
-        upar_samps <- rbind(upar_samps, upar_tmp)
-        Hmcmc <- Hmcmc  - 1 * stats::optimHess(upar_tmp, gr = function(x) {grad_log_prob(out_stan, x)})/dim(par_samps)[1]
-      }
+      upar_samps[i,] <- rstan::unconstrain_pars(out_stan, tmplist)
     }
-  }else{
-    for(i in 1:dim(par_samps)[1]){#just need the length here
-      if(i == 1){upar_samps <- rstan::unconstrain_pars(out_stan, list_2D_row_subset(par_samps_list, i))
-      }else{upar_samps <- rbind(upar_samps, rstan::unconstrain_pars(out_stan, list_2D_row_subset(par_samps_list, i)))}
+  
+  
+  #convert using yj transform - iterate across variables
+  yju <- upar_samps
+  lamvec <- rep(1, dim(upar_samps)[2])
+  for(k in 1:(dim(upar_samps)[2])){
+    tmpPower <- car::powerTransform(object = upar_samps[,k], family = "yjPower")
+    lamvec[k] <- max(yj_range[1],min(yj_range[2],coef(tmpPower, round = TRUE))) #make sure between -3 and 3
+    yju[,k] <- VGAM::yeo.johnson(upar_samps[,k], lamvec[k])
+  }
+  
+  
+  #functions to convert
+  der_yjinv <- function(x, lambda){numDeriv::grad(func = VGAM::yeo.johnson, x = x, lambda = lambda, inverse =TRUE)}
+  
+  grad_yjinv <- function(yj, lambda){#one MCMC draw at a time
+    gradtmp <- rep(0, length(yj))
+    for(k in 1:length(yj)){
+      gradtmp[k] <- der_yjinv(x = yj[k], lambda = lambda[k])
     }
+    return(gradtmp)
   }
 
   row.names(upar_samps) <- 1:dim(par_samps)[1]
-
-  upar_hat <- colMeans(upar_samps)
-
-  #Estimate Hessian
-  if(H_estimate == "MCMC"){
-    Hhat <- Hmcmc
-  }else{#use posterior mean plug-in
-    Hhat  <- -1*stats::optimHess(upar_hat, gr = function(x){rstan::grad_log_prob(out_stan, x)})
+  
+  #posterior mean on transformed scale, then transform back
+  yju_hat <- colMeans(yju)
+  PV_yj <- var(yju)
+  
+  Hhat <- solve(PV_yj)
+  
+  upar_hat <- yju_hat
+  
+  for(k in 1:(dim(upar_samps)[2])){
+    upar_hat[k] <- VGAM::yeo.johnson(yju_hat[k], lamvec[k], inverse =TRUE)
   }
+
+
+  #Estimate Hessian for Prior
+  H0 <- NULL
+  if(prior_only){ #we could also take the MCMC average but start simple here.
+  H0  <- -1*stats::optimHess(upar_hat, gr = function(x){rstan::grad_log_prob(out_stan_prior, x)})
+  }
+  
   #create svrepdesign
   if(rep_design == TRUE){svyrep <- svydes
   }else{
@@ -145,17 +203,51 @@ cs_sampling_legacy <- function(svydes, mod_stan, par_stan = NA, data_stan,
   }
 
   #Estimate Jhat = Var(gradient)
-  print("gradient evaluation")
+  print("(3) Estimating Replicate Variance (3)")
+  #perhaps a slowdown for large number of samples/data?
   rep_tmp <- survey::withReplicates(design = svyrep, theta = grad_par, stanmod = mod_stan,
                                     standata = data_stan, par_hat = upar_hat)#note upar_hat
-  Jhat <- stats::vcov(rep_tmp)
+  
+  gvtmp <- grad_yjinv(yju_hat, lamvec)
+  GMat <- t(t(gvtmp))%*%t(gvtmp)
+  
+  Jhat <- GMat*stats::vcov(rep_tmp)
+  
+  if(prior_only){ #non-asymptotic correction for prior
+    Jhat <- Jhat + GMat*H0
+  }
 
+  print("(4) Estimating Adjustment (4)")
   #compute adjustment
-  #use pivot for numerical stability - close to positive semi-definite if some parameters are highly correlated
-  #(Q <- chol(m, pivot = TRUE))
-  ## we can use this by
-  #pivot <- attr(Q, "pivot")
-  #Q[, order(pivot)]
+
+  #independent or simultaneous adjustment
+  if(diag_only){
+  Hhat <- Diagonal(n = dim(Hhat)[1], x = diag(Hhat))
+  Jhat <- Diagonal(n = dim(Jhat)[1], x = diag(Jhat)) 
+  }
+  #only adjust a subset of the unconstrained parameters - requires specific knowledge of stan model
+  if(!is.null(subset_matrix)){#subset_matrix is an index of parameters (e.g. global)
+    Htmp <- Hhat[subset_matrix, subset_matrix]
+    Jtmp <- Jhat[subset_matrix, subset_matrix]
+    ktmp <- dim(Hhat)[1]
+    k1tmp <- dim(Htmp)[1]
+    k2tmp <- ktmp - k1tmp
+    Itmp <- Diagonal(n = k2tmp, 1)
+    Ztmp <- Matrix(0, nrow = k1tmp, ncol = k2tmp, sparse = TRUE)
+    tZtmp <- Matrix(0, nrow = k2tmp, ncol = k1tmp, sparse = TRUE)
+    
+    Hhat <- rbind(
+              cbind(Htmp, Ztmp),
+              cbind(tZtmp, Itmp)
+    )
+    
+    Jhat <- rbind(
+      cbind(Jtmp, Ztmp),
+      cbind(tZtmp, Itmp)
+    )
+    
+  }
+  
   Hi <- solve(Hhat)
   V1 <- Hi%*%Jhat%*%Hi
 
@@ -178,34 +270,61 @@ cs_sampling_legacy <- function(svydes, mod_stan, par_stan = NA, data_stan,
   R2iR1 <- R2i%*%R1
 
   #adjust samples
-  upar_adj <- plyr::aaply(upar_samps, 1, DEadj, par_hat = upar_hat, R2R1 = R2iR1, .drop = TRUE)
+  print("(5) Applying Adjustment (5)")
+  yju_adj <- plyr::aaply(yju, 1, DEadj, par_hat = yju_hat, R2R1 = R2iR1, .drop = TRUE)
 
   #back transform to constrained parameter space
-  #treat 1 dimensional parameter as special due to dimension drop
-  if(is.null(dim(upar_adj))){
-    upardim <- length(upar_adj)
-    for (i in 1:upardim) {
-      if (i == 1) {
-        par_adj <- unlist(rstan::constrain_pars(out_stan,
-                                                upar_adj[i])[par_stan])
-      }else {
-        par_adj <- rbind(par_adj, unlist(rstan::constrain_pars(out_stan, upar_adj[i])[par_stan]))
-      }
-    }
-  }else{
-    upardim <- dim(upar_adj)[1]
-    for(i in 1:upardim){
-      if(i == 1){par_adj <- unlist(rstan::constrain_pars(out_stan, upar_adj[i,])[par_stan])#drop derived quantities
-      }else{par_adj <- rbind(par_adj, unlist(rstan::constrain_pars(out_stan, upar_adj[i,])[par_stan]))}
-    }
+  #special cases (4) needed for combinations of constrained and unconstrained par have 1 dimension
+  #not likely/possible for unconstrained dim > constrained so one case might never be used
+  
+
+  print("(6) Backtransforming Parameters (6)")
+  
+  #invert yj transform
+  upar_adj <- yju_adj
+  
+  for(k in 1:(dim(upar_samps)[2])){
+    upar_adj[,k] <- VGAM::yeo.johnson(yju_adj[,k], lamvec[k], inverse = TRUE)
   }
+  
+  #convert back  to constrained parameters
+  if(is.null(dim(upar_adj))){upardim <- length(upar_adj)
+    upardim <- dim(upar_adj)[1] #treat 1 dimensional parameter as special due to dimension drop
+    par_adj_tmp <- unlist(rstan::constrain_pars(out_stan, upar_adj[1])[par_stan])
+    par_adj <- matrix(data = NA, nrow = upardim, ncol = length(par_adj_tmp))
+    colnames(par_adj) <- names(par_adj_tmp)
+    for (i in 1:upardim) {
+      if(i %% 500 == 0){print(paste0("Back Converting draw ", i))} #status message for user
+      if(upardim == 1){par_adj[i] <- unlist(rstan::constrain_pars(out_stan, upar_adj[i])[par_stan])
+      }else{par_adj[i,] <- unlist(rstan::constrain_pars(out_stan, upar_adj[i])[par_stan])}
+    }#treat 1 dimensional parameter as special due to dimension drop
+  }else{
+    upardim <- dim(upar_adj)[1] #treat 1 dimensional parameter as special due to dimension drop
+    #only difference between top and bottom is the comma [i,] for different dimensions
+    par_adj_tmp <- unlist(rstan::constrain_pars(out_stan, upar_adj[1,])[par_stan])
+    par_adj <- matrix(data = NA, nrow = upardim, ncol = length(par_adj_tmp))
+    colnames(par_adj) <- names(par_adj_tmp)
+    for (i in 1:upardim) {
+      if(i %% 500 == 0){print(paste0("Back Converting draw ", i))} #status message for user
+      if(upardim == 1){par_adj[i] <- unlist(rstan::constrain_pars(out_stan, upar_adj[i,])[par_stan])#never happen?
+      }else{par_adj[i,] <- unlist(rstan::constrain_pars(out_stan, upar_adj[i,])[par_stan])}
+    }#treat 1 dimensional parameter as special due to dimension drop
+  }#end else
+
+
   #make sure names are the same for sampled and adjusted parms
-  row.names(par_adj) <- 1:dim(par_samps)[1]
+  row.names(par_adj) <- 1:ndraws
   colnames(par_samps) <- colnames(par_adj)
 
-  rtn = list(stan_fit = out_stan, sampled_parms = par_samps, adjusted_parms = par_adj)
+  if(export_unconst_pars){pars_unc <- list(original = upar_samps, adjusted = upar_adj)}else{pars_unc = NULL}#testing multivariate normality
+  if(prior_only){
+  rtn = list(stan_fit = out_stan, sampled_parms = par_samps, adjusted_parms = par_adj, H = Hhat, J = Jhat, Hprior = H0,
+             unconst_parms = pars_unc)
+  }else{
+    rtn = list(stan_fit = out_stan, sampled_parms = par_samps, adjusted_parms = par_adj, H = Hhat, J = Jhat, unconst_parms = pars_unc)
+  }
   class(rtn) = c("cs_sampling", class(rtn))
 
   return(rtn)
 
-}#end of cs_sampling_legacy
+}#end of cs_sampling_yj

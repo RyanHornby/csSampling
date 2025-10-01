@@ -20,6 +20,7 @@ cs_sampling_brms(
   standata_args = list(),
   H_estimate = "MCMC",
   matrix_sqrt = "eigen",
+  prior_only = FALSE,
   sampling_args = list()
 )
 }
@@ -84,8 +85,12 @@ cs_sampling_brms(
 \item a string indicating the method to use to take the "square root" of the R1 and R2 matrices. The default "eigen" uses the eigenvalue decomposition. Otherwise, the Cholesky decomposition is used.
 }}
 
+\item{prior_only}{\itemize{
+\item a logical indicating if the stan model has an option for sampling just from the prior distribution. This can be used to further refine the estimates for covariances H and J.
+}}
+
 \item{sampling_args}{\itemize{
-\item a list of extra arguments to be passed to \code{\link[rstan]{sampling}}.
+\item a list of extra arguments that get passed to \code{\link[rstan]{sampling}}.
 }}
 }
 \value{

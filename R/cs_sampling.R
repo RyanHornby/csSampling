@@ -37,6 +37,8 @@
 #'
 #' @param matrix_sqrt - a string indicating the method to use to take the "square root" of the R1 and R2 matrices. The default "eigen" uses the eigenvalue decomposition. Otherwise, the Cholesky decomposition is used.
 #'
+#' @param prior_only - a logical indicating if the stan model has an option for sampling just from the prior distribution. This can be used to further refine the estimates for covariances H and J.
+#'
 #' @param sampling_args - a list of extra arguments that get passed to \code{\link[rstan]{sampling}}.
 #'
 #' @import rstan
@@ -140,6 +142,7 @@ cs_sampling <- function(svydes, mod_stan, par_stan = NA, data_stan,
                         rep_design = FALSE, ctrl_rep = list(replicates = 100, type = "mrbbootstrap"),
                         H_estimate = "MCMC",
                         matrix_sqrt = "eigen",
+                        prior_only = FALSE,
                         sampling_args = list()){
 
   #Check weights
@@ -167,6 +170,16 @@ cs_sampling <- function(svydes, mod_stan, par_stan = NA, data_stan,
     warning("Sum of the weights may not equal the sample size")
   }
 
+  
+  #Estimate Hessian for Prior
+  if(prior_only){
+  print("(0) Setting up Prior-Only Model (0)")
+    prior_data <- data_stan
+    prior_data$prior_only <- 1 #should convert to integer of 1
+    pkgcond::suppress_messages(out_stan_prior  <- rstan::sampling(object = mod_stan, data = prior_data,
+                                                                  chains = 0, warmup = 0,), "the number of chains is less than 1")
+    
+  }
 
   print("(1) stan fitting (1)")
   out_stan  <- do.call(rstan::sampling, c(list(object = mod_stan, data = data_stan,
@@ -226,12 +239,19 @@ cs_sampling <- function(svydes, mod_stan, par_stan = NA, data_stan,
 
   upar_hat <- colMeans(upar_samps)
 
-  #Estimate Hessian
+  #Estimate Hessian for Posterior
   if(H_estimate == "MCMC"){
     Hhat <- Hmcmc
   }else{#use posterior mean plug-in
     Hhat  <- -1*stats::optimHess(upar_hat, gr = function(x){rstan::grad_log_prob(out_stan, x)})
   }
+  
+  #Estimate Hessian for Prior
+  H0 <- NULL
+  if(prior_only){ #we could also take the MCMC average but start simple here.
+  H0  <- -1*stats::optimHess(upar_hat, gr = function(x){rstan::grad_log_prob(out_stan_prior, x)})
+  }
+  
   #create svrepdesign
   if(rep_design == TRUE){svyrep <- svydes
   }else{
@@ -244,6 +264,10 @@ cs_sampling <- function(svydes, mod_stan, par_stan = NA, data_stan,
   rep_tmp <- survey::withReplicates(design = svyrep, theta = grad_par, stanmod = mod_stan,
                                     standata = data_stan, par_hat = upar_hat)#note upar_hat
   Jhat <- stats::vcov(rep_tmp)
+  
+  if(prior_only){ #non-asymptotic correction for prior
+    Jhat <- Jhat + H0
+  }
 
   print("(4) Estimating Adjustment (4)")
   #compute adjustment
@@ -310,7 +334,11 @@ cs_sampling <- function(svydes, mod_stan, par_stan = NA, data_stan,
   row.names(par_adj) <- 1:ndraws
   colnames(par_samps) <- colnames(par_adj)
 
-  rtn = list(stan_fit = out_stan, sampled_parms = par_samps, adjusted_parms = par_adj)
+  if(prior_only){
+  rtn = list(stan_fit = out_stan, sampled_parms = par_samps, adjusted_parms = par_adj, H = Hhat, J = Jhat, Hprior = H0)
+  }else{
+    rtn = list(stan_fit = out_stan, sampled_parms = par_samps, adjusted_parms = par_adj, H = Hhat, J = Jhat)
+  }
   class(rtn) = c("cs_sampling", class(rtn))
 
   return(rtn)

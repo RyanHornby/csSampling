@@ -14,6 +14,7 @@ cs_sampling(
   ctrl_rep = list(replicates = 100, type = "mrbbootstrap"),
   H_estimate = "MCMC",
   matrix_sqrt = "eigen",
+  prior_only = FALSE,
   sampling_args = list()
 )
 }
@@ -52,6 +53,10 @@ cs_sampling(
 
 \item{matrix_sqrt}{\itemize{
 \item a string indicating the method to use to take the "square root" of the R1 and R2 matrices. The default "eigen" uses the eigenvalue decomposition. Otherwise, the Cholesky decomposition is used.
+}}
+
+\item{prior_only}{\itemize{
+\item a logical indicating if the stan model has an option for sampling just from the prior distribution. This can be used to further refine the estimates for covariances H and J.
 }}
 
 \item{sampling_args}{\itemize{

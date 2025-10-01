@@ -18,8 +18,8 @@
 #' @param standata_args - a list of extra arguments to be passed to \code{\link[brms]{make_standata}}.
 #' @param H_estimate - a string indicating the method to use to estimate H. The default "MCMC" is Monte Carlo averaging over posterior draws. Otherwise, a plug-in using the posterior mean.
 #' @param matrix_sqrt - a string indicating the method to use to take the "square root" of the R1 and R2 matrices. The default "eigen" uses the eigenvalue decomposition. Otherwise, the Cholesky decomposition is used.
+#' @param prior_only - a logical indicating if the stan model has an option for sampling just from the prior distribution. This can be used to further refine the estimates for covariances H and J.
 #' @param sampling_args - a list of extra arguments that get passed to \code{\link[rstan]{sampling}}.
-#' @param sampling_args - a list of extra arguments to be passed to \code{\link[rstan]{sampling}}.
 #' @return The output of cs_sampling.
 #' @import brms
 #' @examples
@@ -54,6 +54,7 @@ cs_sampling_brms <- function(svydes, brmsmod, data, family, par_brms = NA,prior 
                              stancode_args = list(), standata_args = list(),
                              H_estimate = "MCMC",
                              matrix_sqrt = "eigen",
+                             prior_only = FALSE,
                              sampling_args = list()) {
 
 
@@ -64,6 +65,6 @@ cs_sampling_brms <- function(svydes, brmsmod, data, family, par_brms = NA,prior 
 
   return(cs_sampling(svydes = svydes, mod_stan = mod_brms, par_stan = par_brms, data_stan = data_brms,
                      rep_design = rep_design, ctrl_rep = ctrl_rep, ctrl_stan = ctrl_stan,
-                     H_estimate = H_estimate, matrix_sqrt = matrix_sqrt, sampling_args))
+                     H_estimate = H_estimate, matrix_sqrt = matrix_sqrt, prior_only = prior_only, sampling_args = sampling_args))
 }
 
