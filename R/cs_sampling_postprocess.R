@@ -1,6 +1,6 @@
 #' Adjust draws from an already fitted Stan model
 #'
-#' `cs_sampling_load` is a wrapper function that passes an existing \code{\link[brms]{brmsfit}} or \code{\link[rstan]{stanfit}} object to \code{\link[csSampling]{cs_sampling}} or, if `yj_transform` is `TRUE`, to \code{\link[csSampling]{cs_sampling_yj}}.
+#' `cs_sampling_postprocess` applies the complex-survey adjustment to an existing \code{\link[brms]{brmsfit}} or \code{\link[rstan]{stanfit}} object using \code{\link[csSampling]{cs_sampling}} or, if `yj_transform` is `TRUE`, \code{\link[csSampling]{cs_sampling_yj}}.
 #'
 #' @param svydes - a \code{\link[survey]{svydesign}} object or a \code{\link[survey]{svrepdesign}} object. This contains cluster ID, strata, and weight information (\code{\link[survey]{svydesign}}) or replicate weight information (\code{\link[survey]{svrepdesign}})
 #'
@@ -46,10 +46,10 @@
 #' )
 #'
 #' # Apply the adjustment with Yeo-Johnson transformation 
-#' adjusted_yj <- cs_sampling_load(svydes = dstrat, fit = fit)
+#' adjusted_yj <- cs_sampling_postprocess(svydes = dstrat, fit = fit)
 #'
 #' # Apply the adjustment without Yeo-Johnson transformation 
-#' adjusted <- cs_sampling_load(
+#' adjusted <- cs_sampling_postprocess(
 #'     svydes = dstrat, fit = fit, yj_transform = FALSE
 #' )
 #' 
@@ -58,7 +58,7 @@
 #' 
 #' @export
 #' 
-cs_sampling_load <- function(
+cs_sampling_postprocess <- function(
     svydes, fit, par_stan = NA, data_stan = NULL,
     rep_design = FALSE,
     ctrl_rep = list(replicates = 100, type = "mrbbootstrap"),
@@ -130,4 +130,3 @@ cs_sampling_load <- function(
         stan_fit = stan_fit
     )
 }
-
