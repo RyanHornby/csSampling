@@ -145,6 +145,30 @@ cs_sampling <- function(svydes, mod_stan, par_stan = NA, data_stan,
                         prior_only = FALSE,
                         sampling_args = list()){
 
+  .cs_sampling_process(
+    svydes = svydes,
+    mod_stan = mod_stan,
+    par_stan = par_stan,
+    data_stan = data_stan,
+    ctrl_stan = ctrl_stan,
+    rep_design = rep_design,
+    ctrl_rep = ctrl_rep,
+    H_estimate = H_estimate,
+    matrix_sqrt = matrix_sqrt,
+    prior_only = prior_only,
+    sampling_args = sampling_args
+  )
+}
+
+.cs_sampling_process <- function(svydes, mod_stan, par_stan = NA, data_stan,
+                                 ctrl_stan = list(chains = 1, iter = 2000, warmup = 1000, thin = 1),
+                                 rep_design = FALSE, ctrl_rep = list(replicates = 100, type = "mrbbootstrap"),
+                                 H_estimate = "MCMC",
+                                 matrix_sqrt = "eigen",
+                                 prior_only = FALSE,
+                                 sampling_args = list(),
+                                 stan_fit = NULL){
+
   #Check weights
   #Check that the weights exist in both the survey object and the stan data
   #weights() returns full replicate weights set if svrepdesign
@@ -181,12 +205,17 @@ cs_sampling <- function(svydes, mod_stan, par_stan = NA, data_stan,
     
   }
 
-  print("(1) stan fitting (1)")
-  out_stan  <- do.call(rstan::sampling, c(list(object = mod_stan, data = data_stan,
-                                               pars = par_stan,
-                                               chains = ctrl_stan$chains,
-                                               iter = ctrl_stan$iter, warmup = ctrl_stan$warmup, thin = ctrl_stan$thin), sampling_args)
-  )
+  if (is.null(stan_fit)) {
+    print("(1) stan fitting (1)")
+    out_stan  <- do.call(rstan::sampling, c(list(object = mod_stan, data = data_stan,
+                                                 pars = par_stan,
+                                                 chains = ctrl_stan$chains,
+                                                 iter = ctrl_stan$iter, warmup = ctrl_stan$warmup, thin = ctrl_stan$thin), sampling_args)
+    )
+  } else {
+    print("(1) loading fitted stan model (1)")
+    out_stan <- stan_fit
+  }
 
   #Extract parameter draws and convert to unconstrained parameters
 

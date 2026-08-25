@@ -77,10 +77,6 @@ cs_sampling_yj(
 \item{sampling_args}{\itemize{
 \item a list of extra arguments that get passed to \code{\link[rstan]{sampling}}.
 }}
-
-\item{H_estimate}{\itemize{
-\item a string indicating the method to use to estimate H. The default "MCMC" is Monte Carlo averaging over posterior draws. Otherwise, a plug-in using the posterior mean.
-}}
 }
 \value{
 A list of the following:

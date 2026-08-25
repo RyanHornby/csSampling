@@ -33,8 +33,6 @@
 #'
 #' @param ctrl_rep - a list of settings when converting svydes from a \code{\link[survey]{svydesign}} object to a \code{\link[survey]{svrepdesign}} object. replicates - number of replicate weights. type - the type of replicate method to use, the default is mrbbootstrap which sample half of the clusters in each strata to make each replicate (see \code{\link[survey]{as.svrepdesign}}).
 #'
-#' @param H_estimate - a string indicating the method to use to estimate H. The default "MCMC" is Monte Carlo averaging over posterior draws. Otherwise, a plug-in using the posterior mean.
-#'
 #' @param matrix_sqrt - a string indicating the method to use to take the "square root" of the R1 and R2 matrices. The default "eigen" uses the eigenvalue decomposition. Otherwise, the Cholesky decomposition is used.
 #'
 #' @param diag_only - a logical indicating whether the variance adjustment should only use diagonals of H and J.
@@ -77,6 +75,36 @@ cs_sampling_yj <- function(svydes, mod_stan, par_stan = NA, data_stan,
                         yj_range = c(-2.5,2.5),
                         sampling_args = list()){
 
+  .cs_sampling_yj_process(
+    svydes = svydes,
+    mod_stan = mod_stan,
+    par_stan = par_stan,
+    data_stan = data_stan,
+    ctrl_stan = ctrl_stan,
+    rep_design = rep_design,
+    ctrl_rep = ctrl_rep,
+    matrix_sqrt = matrix_sqrt,
+    diag_only = diag_only,
+    subset_matrix = subset_matrix,
+    prior_only = prior_only,
+    export_unconst_pars = export_unconst_pars,
+    yj_range = yj_range,
+    sampling_args = sampling_args
+  )
+}
+
+.cs_sampling_yj_process <- function(svydes, mod_stan, par_stan = NA, data_stan,
+                                    ctrl_stan = list(chains = 1, iter = 2000, warmup = 1000, thin = 1),
+                                    rep_design = FALSE, ctrl_rep = list(replicates = 100, type = "mrbbootstrap"),
+                                    matrix_sqrt = "eigen",
+                                    diag_only = FALSE,
+                                    subset_matrix = NULL,
+                                    prior_only = FALSE,
+                                    export_unconst_pars = FALSE,
+                                    yj_range = c(-2.5,2.5),
+                                    sampling_args = list(),
+                                    stan_fit = NULL){
+
   #Check weights
   #Check that the weights exist in both the survey object and the stan data
   #weights() returns full replicate weights set if svrepdesign
@@ -113,12 +141,17 @@ cs_sampling_yj <- function(svydes, mod_stan, par_stan = NA, data_stan,
     
   }
 
-  print("(1) stan fitting (1)")
-  out_stan  <- do.call(rstan::sampling, c(list(object = mod_stan, data = data_stan,
-                                               pars = par_stan,
-                                               chains = ctrl_stan$chains,
-                                               iter = ctrl_stan$iter, warmup = ctrl_stan$warmup, thin = ctrl_stan$thin), sampling_args)
-  )
+  if (is.null(stan_fit)) {
+    print("(1) stan fitting (1)")
+    out_stan  <- do.call(rstan::sampling, c(list(object = mod_stan, data = data_stan,
+                                                 pars = par_stan,
+                                                 chains = ctrl_stan$chains,
+                                                 iter = ctrl_stan$iter, warmup = ctrl_stan$warmup, thin = ctrl_stan$thin), sampling_args)
+    )
+  } else {
+    print("(1) loading fitted stan model (1)")
+    out_stan <- stan_fit
+  }
 
   #Extract parameter draws and convert to unconstrained parameters
 
@@ -159,7 +192,7 @@ cs_sampling_yj <- function(svydes, mod_stan, par_stan = NA, data_stan,
   lamvec <- rep(1, dim(upar_samps)[2])
   for(k in 1:(dim(upar_samps)[2])){
     tmpPower <- car::powerTransform(object = upar_samps[,k], family = "yjPower")
-    lamvec[k] <- max(yj_range[1],min(yj_range[2],coef(tmpPower, round = TRUE))) #make sure between -3 and 3
+    lamvec[k] <- max(yj_range[1],min(yj_range[2],stats::coef(tmpPower, round = TRUE))) #make sure between -3 and 3
     yju[,k] <- VGAM::yeo.johnson(upar_samps[,k], lamvec[k])
   }
   
@@ -179,7 +212,7 @@ cs_sampling_yj <- function(svydes, mod_stan, par_stan = NA, data_stan,
   
   #posterior mean on transformed scale, then transform back
   yju_hat <- colMeans(yju)
-  PV_yj <- var(yju)
+  PV_yj <- stats::var(yju)
   
   Hhat <- solve(PV_yj)
   
@@ -222,8 +255,8 @@ cs_sampling_yj <- function(svydes, mod_stan, par_stan = NA, data_stan,
 
   #independent or simultaneous adjustment
   if(diag_only){
-  Hhat <- Diagonal(n = dim(Hhat)[1], x = diag(Hhat))
-  Jhat <- Diagonal(n = dim(Jhat)[1], x = diag(Jhat)) 
+  Hhat <- Matrix::Diagonal(n = dim(Hhat)[1], x = diag(Hhat))
+  Jhat <- Matrix::Diagonal(n = dim(Jhat)[1], x = diag(Jhat)) 
   }
   #only adjust a subset of the unconstrained parameters - requires specific knowledge of stan model
   if(!is.null(subset_matrix)){#subset_matrix is an index of parameters (e.g. global)
@@ -232,9 +265,9 @@ cs_sampling_yj <- function(svydes, mod_stan, par_stan = NA, data_stan,
     ktmp <- dim(Hhat)[1]
     k1tmp <- dim(Htmp)[1]
     k2tmp <- ktmp - k1tmp
-    Itmp <- Diagonal(n = k2tmp, 1)
-    Ztmp <- Matrix(0, nrow = k1tmp, ncol = k2tmp, sparse = TRUE)
-    tZtmp <- Matrix(0, nrow = k2tmp, ncol = k1tmp, sparse = TRUE)
+    Itmp <- Matrix::Diagonal(n = k2tmp, 1)
+    Ztmp <- Matrix::Matrix(0, nrow = k1tmp, ncol = k2tmp, sparse = TRUE)
+    tZtmp <- Matrix::Matrix(0, nrow = k2tmp, ncol = k1tmp, sparse = TRUE)
     
     Hhat <- rbind(
               cbind(Htmp, Ztmp),
