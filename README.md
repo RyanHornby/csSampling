@@ -9,8 +9,8 @@ cs_sampling provides estimation of Bayesian models for data collected from compl
 
 Release Notes:
 
-    Version 0.4.0. Functionality for initial estimation in BRMS or Stan and only using cs_sampling to post-process has been added. Often the fitting is more computationally intensive, but the post-processing might need to be changed or adjusted. This new functionality allows for different post-processing attempts without rerunning the MCMC. 
+Version 0.4.0. Functionality for initial estimation in BRMS or Stan and only using cs_sampling to post-process has been added. Often the fitting is more computationally intensive, but the post-processing might need to be changed or adjusted. This new functionality allows for different post-processing attempts without rerunning the MCMC. 
     
-    Version 0.3.0. Functionality for transforming parameters before adjustment as well as including prior curvature have been added. Description of these methods are available in 
+Version 0.3.0. Functionality for transforming parameters before adjustment as well as including prior curvature have been added. Description of these methods are available in 
     Williams, M. R., McGuire, F. H., & Savitsky, T. D. (2026). Uncertainty Quantification for Multi-Level Models Using the Survey-Weighted Pseudo-Posterior. Journal of Data Science, 24(3), 564-583. [doi:10.6339/26-JDS1238](https://doi.org/10.6339/26-JDS1238)
     
